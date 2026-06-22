@@ -1,55 +1,122 @@
 <div align="center">
-  <h1>🎬 YT Automation AI Pipeline</h1>
+  
+  <h1>🎬 VibeCodingMax: The YT Automation AI Pipeline</h1>
+  
   <p>An end-to-end AI-powered orchestration pipeline that autonomously slices long-form TV episodes into highly engaging, context-aware short-form content for YouTube Shorts, TikTok, and Instagram Reels.</p>
+
+  <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python Version" />
+  <img src="https://img.shields.io/badge/AI-Ollama%20%7C%20LLaVA-orange" alt="AI Stack" />
+  <img src="https://img.shields.io/badge/Video-MoviePy%20%7C%20FFmpeg-red" alt="Video Stack" />
+  <img src="https://img.shields.io/badge/Status-Active-brightgreen" alt="Status" />
+  
 </div>
 
 ---
 
 ## 🌟 Overview
 
-This project is a fully automated content factory. It doesn't just cut random clips; it actually "watches" and "reads" the episodes to build a highly intelligent, searchable video database. When given a topic, the AI writes a viral script, generates an AI voiceover, searches the database for visually and contextually perfect video clips, and stitches it all together into a polished final video.
+Welcome to the ultimate automated content factory. This pipeline doesn't just cut random clips and stitch them together; it actually **"watches"** and **"reads"** the episodes to build a highly intelligent, searchable video database. 
+
+When you provide a topic (e.g., *"Evil Morty's Master Plan"*), the AI:
+1. Writes a viral, lore-accurate script.
+2. Generates an emotional AI voiceover.
+3. Semantically searches the database for visually and contextually perfect video clips to match the narration.
+4. Stitches the video, audio, and captions into a polished `.mp4` ready for upload.
+
+---
+
+## 🧠 System Architecture
+
+The project is split into two distinct pipelines: **Ingestion** (building the brain) and **Orchestration** (generating the video).
+
+```mermaid
+graph TD
+  subgraph "1. Data Ingestion Pipeline"
+    A[Raw TV Episode .mp4] -->|scene_splitter.py| B(Segmented Micro-Clips)
+    C[Episode Subtitles .srt] -->|clip_indexer_subtitles.py| D(Subtitle Dialogue Tags)
+    B --> E[clip_indexer_vision.py]
+    D --> F[(clip_index.json Database)]
+    E -->|LLaVA Vision AI Model| F
+  end
+
+  subgraph "2. Video Generation Pipeline"
+    G[Topic: 'Why Rick Hates Time Travel'] -->|script_generator.py| H[Llama 3.1 Generated Script]
+    H -->|Local TTS / ElevenLabs| I[Audio Voiceover .wav]
+    H -->|clip_matcher.py| F
+    F -->|Highest Scoring Matches| J[Selected Video Clips]
+    I --> K{MoviePy / FFmpeg Assembler}
+    J --> K
+    K --> L((Final Viral Short .mp4))
+  end
+```
+
+---
 
 ## ✨ Key Features
 
-- **🎞️ Intelligent Scene Splitting:** Uses advanced heuristics and `ffmpeg` to automatically slice full-length episodes into hundreds of perfectly timed micro-clips without cutting off mid-scene.
-- **📝 Subtitle Context Mapping:** Maps official `.srt` subtitle dialogue directly to specific clips, allowing the AI to understand exactly what is being said in every video file.
-- **👁️ Local Vision AI Tagging:** Uses local Vision-Language Models (like Ollama/LLaVA) to physically "watch" the center frame of every clip and automatically tag the characters, actions, and locations.
-- **🧠 Lore-Accurate Script Generation:** Feeds deep lore and show context into an LLM (Llama 3.1) to generate engaging, viral-ready scripts on any given topic.
-- **🎙️ Flexible TTS Engine:** Supports local GPU-accelerated Text-to-Speech models, Google Colab offloading, and ElevenLabs API integration for premium voice acting.
-- **🤖 Autonomous Orchestrator:** The mastermind script that coordinates the LLM, the TTS engine, the intelligent Clip Matcher, and MoviePy to render the final `.mp4`.
+| Feature | Description |
+| :--- | :--- |
+| **🎞️ Intelligent Splitting** | Uses advanced heuristics to slice full-length episodes into hundreds of perfectly timed micro-clips without awkwardly cutting off mid-scene. |
+| **📝 Context Mapping** | Maps official `.srt` subtitle dialogue directly to specific clips, allowing the AI to understand exactly what is being said in every video file. |
+| **👁️ Local Vision AI** | Wakes up local Vision-Language Models (like Ollama/LLaVA) to physically "watch" the center frame of every clip and tag the characters, actions, and locations. |
+| **🧠 Lore-Accurate Scripts** | Feeds deep lore and show context into an LLM (Llama 3.1) to generate engaging, viral-ready scripts that sound like a true fan wrote them. |
+| **🎙️ Flexible TTS Engines** | Supports local GPU-accelerated Text-to-Speech models (XTTS, Piper), Google Colab offloading, and ElevenLabs API integration for premium voice acting. |
 
-## ⚙️ The 3-Step Ingestion Pipeline
+---
 
-Before generating videos, raw episodes must be ingested into the AI's brain (`clip_index.json`). 
+## 📂 Repository Structure
+
+```text
+YT_Automation_AI/
+├── clips/                 # Stored micro-clips and manifest files
+├── episodes/              # Raw full-length episode files and .srt subtitles
+├── notebooks/             # Google Colab notebooks for heavy GPU offloading
+├── output/                # Rendered final MP4 videos ready for upload
+├── scripts/               # Core pipeline Python scripts (Splitter, Indexer, etc.)
+├── topics/                # LLM generated scripts and pure text narrations
+├── clip_index.json        # The central brain: JSON database of all tagged clips
+├── pipeline_state.json    # State manager allowing the pipeline to pause/resume
+└── requirements.txt       # Python dependencies
+```
+
+---
+
+## ⚙️ The 3-Step Ingestion Guide
+
+Before generating videos, raw episodes must be ingested into the AI's brain (`clip_index.json`). Do this for every new episode you download.
 
 ### 1. Split the Episode
 Chops the raw `.mp4` into hundreds of bite-sized scenes.
 ```bash
-python scripts/scene_splitter_local.py "clips/show_name/episode.mp4" --output "clips/show_name/split_clips" --prefix "s1e1"
+python scripts/scene_splitter_local.py "clips/rick_and_morty/s9e1.mp4" --output "clips/rick_and_morty/split_clips" --prefix "s9e1"
 ```
 
 ### 2. Index Subtitles
-Embeds the dialogue from an `.srt` file into the clip database.
+Embeds the dialogue from the `.srt` file into the clip database so clips can be found via quotes.
 ```bash
-python scripts/clip_indexer_subtitles.py --manifest "clips/show_name/split_clips/s1e1_manifest.json" --srt "clips/show_name/subtitles.srt" --show show_name
+python scripts/clip_indexer_subtitles.py --manifest "clips/rick_and_morty/split_clips/s9e1_manifest.json" --srt "episodes/s9e1.srt" --show rick_and_morty
 ```
 
 ### 3. Vision Auto-Tagging
-Wakes up the local Vision AI to visually tag all new clips with characters and actions.
+Wakes up the Vision AI to visually tag all new clips with characters, moods, and actions.
 ```bash
-python scripts/clip_indexer_vision.py --clips-dir "clips/show_name/split_clips"
+python scripts/clip_indexer_vision.py --clips-dir "clips/rick_and_morty/split_clips"
 ```
+
+---
 
 ## 🚀 Generating a Video
 
-Once your clip library is indexed, creating a video takes a single command:
-```bash
-python scripts/orchestrator_noImage_gpuVoice.py --topic "Why Rick Hates Time Travel"
-```
-The pipeline will automatically generate the script, synthesize the voiceover, retrieve the most relevant clips, and render the final masterpiece to the `output/` folder!
+Once your clip library is indexed, creating a video takes a single command. The pipeline handles everything else autonomously!
 
-## 🛠️ Tech Stack
-- **AI Models:** Ollama (Llama 3.1, LLaVA)
-- **Video Processing:** `moviepy` (v2), `ffmpeg`, OpenCV
-- **Audio/TTS:** Piper TTS, ElevenLabs, XTTS
-- **Environment:** Python 3.10+, PowerShell / Bash
+```bash
+python scripts/orchestrator_noImage_gpuVoice.py --topic "Evil Morty's Master Plan"
+```
+
+> **💡 Tip:** If the pipeline pauses for Google Colab TTS generation, simply generate your audio, drop the `.wav` into the `audio/` folder, and run `python scripts/orchestrator_noImage_gpuVoice.py --resume`.
+
+---
+
+<div align="center">
+  <i>Built to automate the grind so you can focus on the creative vision.</i>
+</div>
