@@ -254,7 +254,7 @@ def phase2_subtitle_index(
 def _extract_middle_frame(video_path: Path, temp_image_path: Path) -> bool:
     """Extract the middle frame of a video clip and save as JPEG."""
     try:
-        from moviepy.editor import VideoFileClip
+        from moviepy import VideoFileClip
         from PIL import Image
     except ImportError:
         log.error("moviepy or Pillow not found. Install with: pip install -r requirements.txt")
@@ -354,6 +354,7 @@ def phase3_vision_index(
     index_path: Path,
     clips_dir: Path,
     show_name: str,
+    prefix: str,
     vision_model: str = "llava",
     force: bool = False,
     characters: list = None,
@@ -375,6 +376,9 @@ def phase3_vision_index(
         data = json.load(f)
 
     clips = data.get("clips", [])
+    # Only process clips that belong to the current episode (match prefix)
+    clips = [c for c in clips if c.get("filename", "").startswith(f"{prefix}_")]
+    
     if not clips:
         log.warning("No clips in index. Nothing to do.")
         return
@@ -524,7 +528,7 @@ Examples:
         log.info("Skipping Phase 3 (vision indexing) as requested.")
     else:
         phase3_vision_index(
-            index_path, clips_dir, args.show, args.vision_model, args.force_vision, characters,
+            index_path, clips_dir, args.show, args.prefix, args.vision_model, args.force_vision, characters,
         )
 
     elapsed = time.time() - start_time

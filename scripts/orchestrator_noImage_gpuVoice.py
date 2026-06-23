@@ -75,7 +75,6 @@ PHASES = [
     "match",
     "assemble",
     "thumbnail",
-    "publish",
 ]
 
 PHASE_DESCRIPTIONS = {

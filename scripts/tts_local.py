@@ -105,6 +105,7 @@ def synthesize_file(
             input=text,
             capture_output=True,
             text=True,
+            encoding="utf-8",
             timeout=300,  # 5 min timeout per file
         )
         if result.returncode != 0:

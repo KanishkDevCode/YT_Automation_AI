@@ -133,10 +133,12 @@ def main():
         if clip.get("characters") and not args.force:
             continue
 
-        video_path = clips_dir / clip["filename"]
-        if not video_path.exists():
+        # Support nested folders (Season/Episode) by searching dynamically
+        found_paths = list(clips_dir.rglob(clip["filename"]))
+        if not found_paths:
             print(f"Skipping {clip['filename']} (file missing)")
             continue
+        video_path = found_paths[0]
 
         print(f"[{i+1}/{len(clips)}] Watching {clip['filename']}...")
         
