@@ -116,11 +116,24 @@ def auto_index_clips(manifest_path: str, srt_path: str, show_slug: str, index_pa
             combined_text = " ".join(overlapping_text)
             tags = generate_keywords(combined_text)
             
+            # Attempt to extract season and episode from filename (e.g., s5e6_scene_001.mp4)
+            match = re.search(r's(\d+)e(\d+)', clip_name, re.IGNORECASE)
+            season = int(match.group(1)) if match else 1
+            episode = int(match.group(2)) if match else 1
+            
+            # Construct filepath relative to the project root assuming clips are next to the manifest
+            # Example manifest path: clips/rick_and_morty/Episode/split_clips/s5e6_manifest.json
+            manifest_dir = manifest_path.parent
+            filepath = str(manifest_dir / clip_name)
+            # Use forward slashes for cross-platform compatibility in the JSON
+            filepath = filepath.replace('\\', '/')
+
             clip_entry = {
                 "filename": clip_name,
+                "filepath": filepath,
                 "show": show_slug,
-                "season": 1,  # Default, can be customized later
-                "episode": 1, # Default
+                "season": season,
+                "episode": episode,
                 "characters": [], # Auto-extracting characters from sub text is hard without NLP, leaving empty
                 "location": "",
                 "action": combined_text,  # We store the exact spoken dialogue as the 'action'

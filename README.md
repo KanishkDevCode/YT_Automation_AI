@@ -1,122 +1,97 @@
 <div align="center">
-  
-  <h1>🎬 VibeCodingMax: The YT Automation AI Pipeline</h1>
-  
-  <p>An end-to-end AI-powered orchestration pipeline that autonomously slices long-form TV episodes into highly engaging, context-aware short-form content for YouTube Shorts, TikTok, and Instagram Reels.</p>
+  <img src="assets/readme_banner.png" alt="Automated YouTube Shorts AI Pipeline" width="100%">
 
-  <img src="https://img.shields.io/badge/Python-3.10+-blue.svg" alt="Python Version" />
-  <img src="https://img.shields.io/badge/AI-Ollama%20%7C%20LLaVA-orange" alt="AI Stack" />
-  <img src="https://img.shields.io/badge/Video-MoviePy%20%7C%20FFmpeg-red" alt="Video Stack" />
-  <img src="https://img.shields.io/badge/Status-Active-brightgreen" alt="Status" />
+  # 🤖 Automated YouTube Shorts AI Pipeline
   
+  [![Python](https://img.shields.io/badge/Python-3.11+-blue.svg?logo=python&logoColor=white)](#)
+  [![PyTorch](https://img.shields.io/badge/PyTorch-2.0+-EE4C2C.svg?logo=pytorch&logoColor=white)](#)
+  [![FFmpeg](https://img.shields.io/badge/FFmpeg-Hardware_Accelerated-007808.svg?logo=ffmpeg&logoColor=white)](#)
+  [![YOLOv8](https://img.shields.io/badge/YOLOv8-Computer_Vision-00FFFF.svg?logo=ultralytics&logoColor=black)](#)
+  [![Status](https://img.shields.io/badge/Status-Active-success.svg)](#)
+
+  **A fully automated, AI-driven pipeline that converts long-form video episodes into highly engaging, auto-captioned, and character-tagged YouTube Shorts.**
 </div>
 
 ---
 
 ## 🌟 Overview
 
-Welcome to the ultimate automated content factory. This pipeline doesn't just cut random clips and stitch them together; it actually **"watches"** and **"reads"** the episodes to build a highly intelligent, searchable video database. 
+This repository houses an advanced video automation pipeline designed to curate and render short-form content at scale. By leveraging computer vision and natural language processing, the system intelligently identifies scenes, extracts dialogue, semantically maps conversations, and spatially tags characters on screen—all before rendering the final hardware-accelerated video.
 
-When you provide a topic (e.g., *"Evil Morty's Master Plan"*), the AI:
-1. Writes a viral, lore-accurate script.
-2. Generates an emotional AI voiceover.
-3. Semantically searches the database for visually and contextually perfect video clips to match the narration.
-4. Stitches the video, audio, and captions into a polished `.mp4` ready for upload.
+### 🧠 Core Capabilities
+- **Intelligent Scene Splitting:** Uses `PySceneDetect` to losslessly cut full-length episodes into hundreds of perfect, context-aware micro-clips.
+- **Dialogue Extraction:** Maps `.srt` subtitle files directly to generated clips to capture exact conversational context.
+- **Semantic Vibe-Search:** Uses Hugging Face's `clip-ViT` models to create dense vector embeddings of every scene, allowing you to search your video database by "vibe" or specific topics.
+- **Character Recognition:** Employs a custom-trained **YOLOv8** model to automatically tag which characters (e.g., Rick, Morty, Summer) are actively present in any given scene.
+- **Hardware-Accelerated Rendering:** Powered by FFmpeg with NVIDIA NVENC support (`h264_nvenc`) to assemble and render 1080p Shorts natively on the GPU in seconds.
 
 ---
 
-## 🧠 System Architecture
+## 🛠️ Pipeline Architecture
 
-The project is split into two distinct pipelines: **Ingestion** (building the brain) and **Orchestration** (generating the video).
+The pipeline processes raw video through a sequence of 4 specialized indexing scripts, followed by a rendering orchestrator.
 
 ```mermaid
-graph TD
-  subgraph "1. Data Ingestion Pipeline"
-    A[Raw TV Episode .mp4] -->|scene_splitter.py| B(Segmented Micro-Clips)
-    C[Episode Subtitles .srt] -->|clip_indexer_subtitles.py| D(Subtitle Dialogue Tags)
-    B --> E[clip_indexer_vision.py]
-    D --> F[(clip_index.json Database)]
-    E -->|LLaVA Vision AI Model| F
-  end
+graph TD;
+    classDef raw fill:#1E293B,stroke:#475569,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
+    classDef process fill:#0284C7,stroke:#0369A1,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
+    classDef nlp fill:#7C3AED,stroke:#6D28D9,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
+    classDef vision fill:#059669,stroke:#047857,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
+    classDef db fill:#D97706,stroke:#B45309,stroke-width:2px,color:#F8FAFC,rx:15px,ry:15px;
+    classDef render fill:#DC2626,stroke:#B91C1C,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
+    classDef final fill:#000000,stroke:#EF4444,stroke-width:3px,color:#FFFFFF,rx:5px,ry:5px;
 
-  subgraph "2. Video Generation Pipeline"
-    G[Topic: 'Why Rick Hates Time Travel'] -->|script_generator.py| H[Llama 3.1 Generated Script]
-    H -->|Local TTS / ElevenLabs| I[Audio Voiceover .wav]
-    H -->|clip_matcher.py| F
-    F -->|Highest Scoring Matches| J[Selected Video Clips]
-    I --> K{MoviePy / FFmpeg Assembler}
-    J --> K
-    K --> L((Final Viral Short .mp4))
-  end
+    A[Raw .mkv Episode]:::raw --> B[1. Scene Splitter]:::process
+    B -->|Generates 400+ Clips| C[2. Subtitle Indexer]:::process
+    C -->|Extracts Text| D[3. Embeddings Indexer]:::nlp
+    D -->|Semantic Search Space| E[4. YOLO Vision Tagger]:::vision
+    E -->|Updates Database| F[(clip_index.json)]:::db
+    
+    F --> G[Video Assembler & Orchestrator]:::render
+    G -->|NVENC Hardware Rendering| H[🎬 Final YouTube Short]:::final
 ```
 
 ---
 
-## ✨ Key Features
+## 🚀 Usage Guide
 
-| Feature | Description |
-| :--- | :--- |
-| **🎞️ Intelligent Splitting** | Uses advanced heuristics to slice full-length episodes into hundreds of perfectly timed micro-clips without awkwardly cutting off mid-scene. |
-| **📝 Context Mapping** | Maps official `.srt` subtitle dialogue directly to specific clips, allowing the AI to understand exactly what is being said in every video file. |
-| **👁️ Local Vision AI** | Wakes up local Vision-Language Models (like Ollama/LLaVA) to physically "watch" the center frame of every clip and tag the characters, actions, and locations. |
-| **🧠 Lore-Accurate Scripts** | Feeds deep lore and show context into an LLM (Llama 3.1) to generate engaging, viral-ready scripts that sound like a true fan wrote them. |
-| **🎙️ Flexible TTS Engines** | Supports local GPU-accelerated Text-to-Speech models (XTTS, Piper), Google Colab offloading, and ElevenLabs API integration for premium voice acting. |
+To process a new episode, activate your virtual environment and run the pipeline sequence below:
 
----
+### Step 1: Chop the Episode into Scenes
+Cuts the main video into individual scene clips based on camera cuts.
+```powershell
+.\venv\Scripts\python scripts/scene_splitter.py "clips/rick_and_morty/Episode/episode.mkv" --output "clips/rick_and_morty/" --prefix "s5e6"
+```
+*(The script will automatically cluster the output into a tidy `split_clips` folder inside your Episode directory!)*
 
-## 📂 Repository Structure
+### Step 2: Auto-Tag Subtitles
+Cross-references the generated video clips with the master subtitle file to perfectly extract dialogue into `clip_index.json`.
+```powershell
+.\venv\Scripts\python scripts/clip_indexer_subtitles.py --manifest "clips/rick_and_morty/Episode/split_clips/manifest.json" --srt "subtitles/episode.srt" --show "rick_and_morty"
+```
 
-```text
-YT_Automation_AI/
-├── clips/                 # Stored micro-clips and manifest files
-├── episodes/              # Raw full-length episode files and .srt subtitles
-├── notebooks/             # Google Colab notebooks for heavy GPU offloading
-├── output/                # Rendered final MP4 videos ready for upload
-├── scripts/               # Core pipeline Python scripts (Splitter, Indexer, etc.)
-├── topics/                # LLM generated scripts and pure text narrations
-├── clip_index.json        # The central brain: JSON database of all tagged clips
-├── pipeline_state.json    # State manager allowing the pipeline to pause/resume
-└── requirements.txt       # Python dependencies
+### Step 3: Generate Semantic Embeddings
+Runs the NLP model to vectorize all extracted text, enabling AI-powered semantic search. *(Note: Force PyTorch to CPU if your RTX 5060 hits architecture limits).*
+```powershell
+$env:CUDA_VISIBLE_DEVICES="-1"
+.\venv\Scripts\python scripts/clip_indexer_embed.py
+```
+
+### Step 4: YOLO Vision Tagging
+Runs the YOLOv8 computer vision model to scan every frame of the clips and tag the characters present.
+```powershell
+.\venv\Scripts\python scripts/clip_indexer_yolo.py --weights yolo_wt/20epochs.pt
+$env:CUDA_VISIBLE_DEVICES=""
 ```
 
 ---
 
-## ⚙️ The 3-Step Ingestion Guide
-
-Before generating videos, raw episodes must be ingested into the AI's brain (`clip_index.json`). Do this for every new episode you download.
-
-### 1. Split the Episode
-Chops the raw `.mp4` into hundreds of bite-sized scenes.
-```bash
-python scripts/scene_splitter_local.py "clips/rick_and_morty/s9e1.mp4" --output "clips/rick_and_morty/split_clips" --prefix "s9e1"
-```
-
-### 2. Index Subtitles
-Embeds the dialogue from the `.srt` file into the clip database so clips can be found via quotes.
-```bash
-python scripts/clip_indexer_subtitles.py --manifest "clips/rick_and_morty/split_clips/s9e1_manifest.json" --srt "episodes/s9e1.srt" --show rick_and_morty
-```
-
-### 3. Vision Auto-Tagging
-Wakes up the Vision AI to visually tag all new clips with characters, moods, and actions.
-```bash
-python scripts/clip_indexer_vision.py --clips-dir "clips/rick_and_morty/split_clips"
-```
+## ⚙️ Hardware Requirements
+- **OS:** Windows 11
+- **GPU:** NVIDIA RTX 5060 (or better) with up-to-date Game Ready or Studio Drivers.
+- **Dependencies:** FFmpeg must be installed and added to the System PATH with `h264_nvenc` support.
 
 ---
-
-## 🚀 Generating a Video
-
-Once your clip library is indexed, creating a video takes a single command. The pipeline handles everything else autonomously!
-
-```bash
-python scripts/orchestrator_noImage_gpuVoice.py --topic "Evil Morty's Master Plan"
-```
-
-> **💡 Tip:** If the pipeline pauses for Google Colab TTS generation, simply generate your audio, drop the `.wav` into the `audio/` folder, and run `python scripts/orchestrator_noImage_gpuVoice.py --resume`.
-
----
-
 <div align="center">
-  <i>Built to automate the grind so you can focus on the creative vision.</i>
+<i>Built with ☕ and ❤️ for Automated Content Creation.</i>
 </div>
