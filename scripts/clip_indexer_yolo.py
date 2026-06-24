@@ -126,15 +126,21 @@ def main():
         
         print(f"Result: {detected_chars}")
         
-        # SAVE BATCHED! The file is massive because of embeddings, so saving every single frame freezes the computer.
+        # SAVE BATCHED safely using a temp file
         if i % 50 == 0:
-            with open(index_path, 'w', encoding='utf-8') as f:
+            import os
+            temp_path = index_path.with_suffix('.json.tmp')
+            with open(temp_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f)
+            os.replace(temp_path, index_path)
             print(f"  [Saved backup at {i} clips]")
 
-    # Final save
-    with open(index_path, 'w', encoding='utf-8') as f:
+    # Final save safely
+    import os
+    temp_path = index_path.with_suffix('.json.tmp')
+    with open(temp_path, 'w', encoding='utf-8') as f:
         json.dump(data, f)
+    os.replace(temp_path, index_path)
 
     print("\n✅ Batch YOLO tagging complete!")
 
