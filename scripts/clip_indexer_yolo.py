@@ -103,46 +103,47 @@ def main():
         return
 
     # ── 2. Process Clips and Save Incrementally ──
-    for i, clip in enumerate(clips_to_process, 1):
-        filepath = clip.get("filepath")
-        if not filepath:
-            print(f"[{i}/{len(clips_to_process)}] SKIPPING (No filepath in index): {clip.get('filename', 'Unknown')}")
-            continue
+    def safe_save():
+        """Write to a temp file first, then replace the real file to prevent corruption."""
+        temp_path = index_path.with_suffix('.tmp')
+        with open(temp_path, 'w', encoding='utf-8') as f:
+            # Dropped indent=2 because the embeddings make the file too huge for indentation
+            json.dump(data, f)
+        temp_path.replace(index_path)
+
+    try:
+        for i, clip in enumerate(clips_to_process, 1):
+            filepath = clip.get("filepath")
+            if not filepath:
+                print(f"[{i}/{len(clips_to_process)}] SKIPPING (No filepath in index): {clip.get('filename', 'Unknown')}")
+                continue
+                
+            video_path = Path(filepath)
+            if not video_path.exists():
+                print(f"[{i}/{len(clips_to_process)}] SKIPPING (File not found): {video_path}")
+                continue
+
+            print(f"[{i}/{len(clips_to_process)}] Analyzing {clip['filename']}... ", end="", flush=True)
             
-        video_path = Path(filepath)
-        if not video_path.exists():
-            print(f"[{i}/{len(clips_to_process)}] SKIPPING (File not found): {video_path}")
-            continue
+            detected_chars = classify_clip(model, video_path)
+            
+            # OVERWRITE the old garbage characters with the true YOLO ones
+            clip["characters"] = detected_chars
+            clip["yolo_tagged"] = True  
+            
+            print(f"Result: {detected_chars}")
+            
+            # Save every 50 clips to prevent huge disk I/O bottlenecks
+            if i % 50 == 0:
+                safe_save()
 
-        print(f"[{i}/{len(clips_to_process)}] Analyzing {clip['filename']}... ", end="", flush=True)
-        
-        detected_chars = classify_clip(model, video_path)
-        
-        # OVERWRITE the old garbage characters with the true YOLO ones
-        clip["characters"] = detected_chars
-        
-        # Add a flag so we know we don't need to do this clip again!
-        clip["yolo_tagged"] = True  
-        
-        print(f"Result: {detected_chars}")
-        
-        # SAVE BATCHED safely using a temp file
-        if i % 50 == 0:
-            import os
-            temp_path = index_path.with_suffix('.json.tmp')
-            with open(temp_path, 'w', encoding='utf-8') as f:
-                json.dump(data, f)
-            os.replace(temp_path, index_path)
-            print(f"  [Saved backup at {i} clips]")
+    except KeyboardInterrupt:
+        print("\n\n⚠️ Script interrupted by user! Saving progress before exiting...")
+    finally:
+        # Guarantee a save when the script finishes or is killed
+        safe_save()
 
-    # Final save safely
-    import os
-    temp_path = index_path.with_suffix('.json.tmp')
-    with open(temp_path, 'w', encoding='utf-8') as f:
-        json.dump(data, f)
-    os.replace(temp_path, index_path)
-
-    print("\n✅ Batch YOLO tagging complete!")
+    print("\n✅ Batch YOLO tagging complete (progress safely saved).")
 
 if __name__ == "__main__":
     main()
