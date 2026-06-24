@@ -107,10 +107,12 @@ def prepare_clip_segment(clip_path: str, duration: float, clip_start: float,
 
     Uses center-crop to fit 9:16 aspect ratio.
     """
-    # Build filter: scale to fill, then center-crop
+    # Build filter: Split video into background (blurred, fills screen) and foreground (fit in center)
     vf = (
-        f"scale={width}:{height}:force_original_aspect_ratio=increase,"
-        f"crop={width}:{height},"
+        f"split=2[bg][fg];"
+        f"[bg]scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height},boxblur=40:40[bg_blur];"
+        f"[fg]scale={width}:{height}:force_original_aspect_ratio=decrease[fg_scaled];"
+        f"[bg_blur][fg_scaled]overlay=(W-w)/2:(H-h)/2,"
         f"fps={fps},"
         f"setsar=1"
     )
@@ -123,8 +125,8 @@ def prepare_clip_segment(clip_path: str, duration: float, clip_start: float,
         "-vf", vf,
         "-an",  # Strip audio from clip
         "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "23",
+        "-preset", "slow",
+        "-crf", "16",
         "-pix_fmt", "yuv420p",
         str(output_path),
     ]
@@ -172,8 +174,8 @@ def prepare_image_segment(image_path: str, duration: float,
         "-t", str(duration),
         "-vf", vf,
         "-c:v", "libx264",
-        "-preset", "fast",
-        "-crf", "23",
+        "-preset", "slow",
+        "-crf", "16",
         "-pix_fmt", "yuv420p",
         str(output_path),
     ]
@@ -532,8 +534,8 @@ def assemble_video(manifest: dict, audio_path: str, output_path: str,
                 "-i", concat_video,
                 "-vf", caption_filter,
                 "-c:v", codec,
-                "-preset", "fast",
-                "-crf", "20",
+                "-preset", "slow",
+                "-crf", "16",
                 "-pix_fmt", pix_fmt,
                 "-an",
                 captioned_video,
