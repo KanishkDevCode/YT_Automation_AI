@@ -94,7 +94,12 @@ def main():
 
     # ── 2. Process Clips and Save Incrementally ──
     for i, clip in enumerate(clips_to_process, 1):
-        video_path = Path(clip["filepath"])
+        filepath = clip.get("filepath")
+        if not filepath:
+            print(f"[{i}/{len(clips_to_process)}] SKIPPING (No filepath in index): {clip.get('filename', 'Unknown')}")
+            continue
+            
+        video_path = Path(filepath)
         if not video_path.exists():
             print(f"[{i}/{len(clips_to_process)}] SKIPPING (File not found): {video_path}")
             continue
@@ -111,9 +116,15 @@ def main():
         
         print(f"Result: {detected_chars}")
         
-        # SAVE INCREMENTALLY! If the script crashes, you lose zero progress.
-        with open(index_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
+        # SAVE BATCHED! The file is massive because of embeddings, so saving every single frame freezes the computer.
+        if i % 50 == 0:
+            with open(index_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f)
+            print(f"  [Saved backup at {i} clips]")
+
+    # Final save
+    with open(index_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f)
 
     print("\n✅ Batch YOLO tagging complete!")
 
