@@ -41,6 +41,10 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+import warnings
+
+# Suppress the annoying PyTorch sm_120 GPU capability warning
+warnings.filterwarnings("ignore", category=UserWarning, module=".*torch.*")
 
 # ---------------------------------------------------------------------------
 # Allow running as `python scripts/orchestrator.py` from project root
