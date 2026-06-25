@@ -14,3 +14,7 @@ __pycache__/
 !topics/theories.json
 !topics/wiki.json
 # !rick_and_morty_subtitles/
+venv/
+__pycache__/
+output/
+audio/
