@@ -599,7 +599,6 @@ def assemble_video(manifest: dict, audio_path: str, output_path: str,
                 "-c:v", "copy",
                 "-c:a", audio_codec,
                 "-b:a", "192k",
-                "-shortest",
                 output_file,
             ], "mix audio with BGM")
         else:
@@ -613,7 +612,6 @@ def assemble_video(manifest: dict, audio_path: str, output_path: str,
                 "-c:v", "copy",
                 "-c:a", audio_codec,
                 "-b:a", "192k",
-                "-shortest",
                 output_file,
             ], "add narration audio")
 
