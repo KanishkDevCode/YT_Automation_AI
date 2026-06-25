@@ -529,13 +529,25 @@ def assemble_video(manifest: dict, audio_path: str, output_path: str,
             log.error("No segment files were prepared — aborting")
             return
 
-        # -- Step 2: Concatenate & apply captions ----------------
+        # -- Step 2: Concatenate segments ----------------------
         concat_list = tmp_dir / "concat_list.txt"
         with open(concat_list, "w", encoding="utf-8") as f:
             for sf in segment_files:
+                # FFmpeg concat demuxer needs forward slashes and escaped quotes
                 safe_path = str(sf).replace("\\", "/")
                 f.write(f"file '{safe_path}'\n")
 
+        concat_video = str(tmp_dir / "concat_raw.mp4")
+        run_ffmpeg([
+            "-y",
+            "-f", "concat",
+            "-safe", "0",
+            "-i", str(concat_list),
+            "-c", "copy",
+            concat_video,
+        ], "concatenate segments")
+
+        # -- Step 3: Apply captions via drawtext ---------------
         caption_filter = build_simple_caption_drawtext(
             segments, caption_cfg, height, width
         )
@@ -544,27 +556,16 @@ def assemble_video(manifest: dict, audio_path: str, output_path: str,
         if caption_filter:
             run_ffmpeg([
                 "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(concat_list),
+                "-i", concat_video,
                 "-vf", caption_filter,
                 *get_video_encoder_args(),
                 "-pix_fmt", pix_fmt,
                 "-an",
                 captioned_video,
-            ], "concatenate and apply captions")
+            ], "apply captions")
         else:
-            log.warning("No caption filter generated — concatenating visual segments")
-            run_ffmpeg([
-                "-y",
-                "-f", "concat",
-                "-safe", "0",
-                "-i", str(concat_list),
-                *get_video_encoder_args(),
-                "-pix_fmt", pix_fmt,
-                "-an",
-                captioned_video,
-            ], "concatenate visual segments")
+            log.warning("No caption filter generated — skipping caption overlay")
+            captioned_video = concat_video
 
         # -- Step 4: Mix audio ---------------------------------
         output_file = str(output_path)
