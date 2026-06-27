@@ -1,120 +1,375 @@
 """
-clip_indexer_allphasesUpdated.py - Master orchestration script.
+clip_indexer_allphasesUpdated.py — Master Orchestration Script for Episode Ingestion & Indexing.
 
-Executes the entire 5-phase clip indexing pipeline on single or batch episodes:
-  Phase 1: scene_splitter.py
-  Phase 2: clip_indexer_subtitles.py
-  Phase 3: clip_indexer_embed.py
-  Phase 4: clip_indexer_yolo.py
-  Phase 5: episode_indexer.py
+Orchestrates the complete 6-step ingestion workflow for single episodes or batches:
+  Step 1: Run scene_splitter.py on the episode MP4 to slice it into scene clips and produce a manifest.
+  Step 2: Run clip_indexer_subtitles.py using the manifest and matching SRT file to tag dialogue.
+  Step 3: Run clip_indexer_embed.py to compute semantic vector embeddings.
+  Step 4: Run clip_indexer_yolo.py to detect visual bounding boxes.
+  Step 5: Run episode_indexer.py on the episode to extract plot summaries and canonical metadata.
+  Step 6: Run enrich_clip_characters.py to unify character tags and update embeddings.
+
+CLI Execution Examples:
+    # Single episode mode:
+    python scripts/clip_indexer_allphasesUpdated.py --episode episodes/s1e1.mp4 --show rick_and_morty
+
+    # Single episode mode with custom SRT directory:
+    python scripts/clip_indexer_allphasesUpdated.py --episode episodes/s1e1.mp4 --show rick_and_morty --srt-dir rick_and_morty_subtitles/Subtitles_Allinone
+
+    # Batch directory mode:
+    python scripts/clip_indexer_allphasesUpdated.py --batch episodes/ --show rick_and_morty
 """
 
 import argparse
-import sys
-import subprocess
 import logging
+import os
+import re
+import subprocess
+import sys
+import time
 from pathlib import Path
+from typing import List, Optional, Tuple
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(levelname)-8s %(name)s — %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
+# Ensure scripts directory is in sys.path to import shared configuration utilities
+SCRIPTS_DIR = Path(__file__).resolve().parent
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
+
+from config_loader import (
+    PROJECT_ROOT,
+    get_active_show,
+    get_project_path,
+    load_pipeline_config,
 )
-log = logging.getLogger("allphases_updated")
 
-def run_cmd(cmd_list, description):
-    log.info("=" * 60)
-    log.info(f"PHASE: {description}")
-    log.info("=" * 60)
-    log.info(f"Running: {' '.join(cmd_list)}")
-    
+
+class Colors:
+    """ANSI escape formatting codes for colored terminal output."""
+    GREEN = "\033[92m"
+    CYAN = "\033[96m"
+    YELLOW = "\033[93m"
+    RED = "\033[91m"
+    BOLD = "\033[1m"
+    RESET = "\033[0m"
+
+
+def log_info(msg: str) -> None:
+    """Print standard informational message in green."""
+    print(f"{Colors.GREEN}[INFO]{Colors.RESET} {msg}")
+
+
+def log_header(msg: str) -> None:
+    """Print prominent section banner in cyan bold."""
+    banner = "=" * 70
+    print(f"\n{Colors.CYAN}{Colors.BOLD}{banner}\n{msg}\n{banner}{Colors.RESET}")
+
+
+def log_step(step_num: int, total_steps: int, desc: str) -> None:
+    """Print workflow step indicator in cyan bold."""
+    print(f"\n{Colors.CYAN}{Colors.BOLD}[Step {step_num}/{total_steps}]{Colors.RESET} {Colors.BOLD}{desc}{Colors.RESET}")
+
+
+def log_success(msg: str) -> None:
+    """Print success checkmark message in green."""
+    print(f"{Colors.GREEN}✓ {msg}{Colors.RESET}")
+
+
+def log_warning(msg: str) -> None:
+    """Print warning indicator message in yellow."""
+    print(f"{Colors.YELLOW}⚠ [WARNING] {msg}{Colors.RESET}")
+
+
+def log_error(msg: str) -> None:
+    """Print error indicator message in red."""
+    print(f"{Colors.RED}✗ [ERROR] {msg}{Colors.RESET}", file=sys.stderr)
+
+
+def parse_season_episode(filename: str) -> Optional[Tuple[int, int]]:
+    """Extract season and episode numbers from filename using standard patterns."""
+    match = re.search(r"[Ss](\d+)[Ee](\d+)", filename)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    match = re.search(r"\b(\d+)x(\d+)\b", filename)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+    return None
+
+
+def find_matching_srt(
+    episode_mp4: Path,
+    prefix: str,
+    srt_dir: Optional[Path],
+    default_subtitles_dir: Path,
+) -> Optional[Path]:
+    """Locate matching SRT subtitle file across candidate directories."""
+    search_dirs = []
+    if srt_dir and srt_dir.exists():
+        search_dirs.append(srt_dir)
+    if episode_mp4.parent.exists():
+        search_dirs.append(episode_mp4.parent)
+    if default_subtitles_dir and default_subtitles_dir.exists():
+        search_dirs.append(default_subtitles_dir)
+
+    ep_id = parse_season_episode(episode_mp4.name)
+
+    for directory in search_dirs:
+        for srt_path in directory.glob("**/*.srt"):
+            srt_id = parse_season_episode(srt_path.name)
+            if ep_id and srt_id and ep_id == srt_id:
+                return srt_path
+            if episode_mp4.stem.lower() in srt_path.name.lower() or prefix.lower() in srt_path.name.lower():
+                return srt_path
+    return None
+
+
+def run_command(cmd: List[str]) -> None:
+    """Execute subprocess command with colored logging and error verification."""
+    log_info(f"Executing command: {' '.join(cmd)}")
     try:
-        result = subprocess.run(cmd_list, check=True)
-        log.info(f"✓ {description} complete.")
+        subprocess.run(cmd, check=True)
+        log_success("Step finished successfully.")
+    except subprocess.CalledProcessError as err:
+        log_error(f"Command failed with exit code {err.returncode}")
+        raise err
+
+
+def process_episode(
+    episode_mp4: Path,
+    show_slug: str,
+    show_config: dict,
+    pipeline_cfg: dict,
+    srt_dir_arg: Optional[Path],
+    weights_path: Path,
+    episode_index: int = 1,
+    total_episodes: int = 1,
+) -> bool:
+    """Execute complete 6-step ingestion workflow for a single episode video file."""
+    if not episode_mp4.exists():
+        log_error(f"Episode video file not found: {episode_mp4}")
+        return False
+
+    header_text = f"[Episode {episode_index}/{total_episodes}] Processing: {episode_mp4.name}"
+    log_header(header_text)
+
+    ep_id = parse_season_episode(episode_mp4.name)
+    if ep_id:
+        season, ep_num = ep_id
+        prefix = f"s{season}e{ep_num}"
+    else:
+        prefix = episode_mp4.stem
+
+    clips_dir = (PROJECT_ROOT / show_config.get("clips_dir", f"./clips/{show_slug}")).resolve()
+    clip_index_path = get_project_path("clip_index", pipeline_cfg)
+    default_subtitles_dir = get_project_path("subtitles_dir", pipeline_cfg)
+    srt_path = find_matching_srt(episode_mp4, prefix, srt_dir_arg, default_subtitles_dir)
+
+    if srt_path:
+        log_info(f"Found matching subtitle file: {srt_path}")
+    else:
+        log_warning("No matching subtitle file found. Subtitle-dependent steps will be skipped.")
+
+    try:
+        # Step 1: Scene Splitter
+        log_step(1, 6, "Running scene_splitter.py to slice episode MP4...")
+        cmd1 = [
+            sys.executable,
+            str(SCRIPTS_DIR / "scene_splitter.py"),
+            str(episode_mp4),
+            "--output",
+            str(clips_dir),
+            "--prefix",
+            prefix,
+        ]
+        run_command(cmd1)
+
+        # Step 2: Subtitle Indexer
+        manifest_path = clips_dir / f"{prefix}_manifest.json"
+        log_step(2, 6, "Running clip_indexer_subtitles.py to tag dialogue...")
+        if srt_path and manifest_path.exists():
+            cmd2 = [
+                sys.executable,
+                str(SCRIPTS_DIR / "clip_indexer_subtitles.py"),
+                "--manifest",
+                str(manifest_path),
+                "--srt",
+                str(srt_path),
+                "--show",
+                show_slug,
+                "--index",
+                str(clip_index_path),
+            ]
+            run_command(cmd2)
+        else:
+            log_warning("Skipping Step 2 because manifest or SRT file is missing.")
+
+        # Step 3: Embeddings
+        log_step(3, 6, "Running clip_indexer_embed.py to compute semantic vector embeddings...")
+        cmd3 = [
+            sys.executable,
+            str(SCRIPTS_DIR / "clip_indexer_embed.py"),
+            "--index",
+            str(clip_index_path),
+        ]
+        run_command(cmd3)
+
+        # Step 4: YOLO Vision Tagging
+        log_step(4, 6, "Running clip_indexer_yolo.py to detect visual bounding boxes...")
+        cmd4 = [
+            sys.executable,
+            str(SCRIPTS_DIR / "clip_indexer_yolo.py"),
+            "--index",
+            str(clip_index_path),
+            "--weights",
+            str(weights_path),
+            "--target-dir",
+            prefix,
+        ]
+        run_command(cmd4)
+
+        # Step 5: Whole Episode Summary Indexer
+        log_step(5, 6, "Running episode_indexer.py on whole episode to extract plot summaries...")
+        if srt_path:
+            cmd5 = [
+                sys.executable,
+                str(SCRIPTS_DIR / "episode_indexer.py"),
+                "--show",
+                show_slug,
+                "--single",
+                str(srt_path),
+            ]
+            run_command(cmd5)
+        else:
+            log_warning("Skipping Step 5 because matching SRT file is missing.")
+
+        # Step 6: Character Enrichment & Re-embedding
+        log_step(6, 6, "Running enrich_clip_characters.py to unify character tags and update embeddings...")
+        cmd6 = [
+            sys.executable,
+            str(SCRIPTS_DIR / "enrich_clip_characters.py"),
+            "--index",
+            str(clip_index_path),
+            "--show",
+            show_slug,
+        ]
+        run_command(cmd6)
+
+        log_success(f"All workflow phases finished successfully for {episode_mp4.name}")
         return True
-    except subprocess.CalledProcessError as e:
-        log.error(f"❌ {description} failed with exit code {e.returncode}.")
+
+    except Exception as exc:
+        log_error(f"Workflow interrupted during episode ingestion: {exc}")
         return False
 
-def run_single_episode(episode_path: Path, show_slug: str, yolo_weights: str, threshold: float = 27.0):
-    """Run all 5 phases on a single episode."""
-    if not episode_path.exists():
-        log.error(f"Episode file not found: {episode_path}")
-        return False
-        
-    # Assume SRT is exactly the same name but with .srt extension
-    srt_path = episode_path.with_suffix(".srt")
-    if not srt_path.exists():
-        log.error(f"Subtitle file not found: {srt_path} (Expected exact match to mp4)")
-        return False
-        
-    prefix = episode_path.stem
-    manifest_path = f"clips/{prefix}_manifest.json"
-    
-    log.info(f"\n🚀 Starting Full Pipeline for: {prefix}\n")
 
-    # Phase 1: Scene Splitter
-    cmd1 = [sys.executable, "scripts/scene_splitter.py", str(episode_path), "--output", "clips", "--prefix", prefix, "--threshold", str(threshold)]
-    if not run_cmd(cmd1, "Scene Splitting"): return False
+def main() -> None:
+    """Parse CLI arguments and coordinate single or batch episode processing."""
+    parser = argparse.ArgumentParser(
+        description="Master Orchestrator for Complete Episode Ingestion and Indexing",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+CLI Execution Examples:
+    # Single episode mode:
+    python scripts/clip_indexer_allphasesUpdated.py --episode episodes/s1e1.mp4 --show rick_and_morty
 
-    # Phase 2: Subtitle Indexer
-    cmd2 = [sys.executable, "scripts/clip_indexer_subtitles.py", "--manifest", manifest_path, "--srt", str(srt_path), "--show", show_slug]
-    if not run_cmd(cmd2, "Subtitle Indexing"): return False
+    # Single episode mode with custom SRT directory:
+    python scripts/clip_indexer_allphasesUpdated.py --episode episodes/s1e1.mp4 --show rick_and_morty --srt-dir rick_and_morty_subtitles/Subtitles_Allinone
 
-    # Phase 3: Semantic Embeddings
-    cmd3 = [sys.executable, "scripts/clip_indexer_embed.py", "--index", "clip_index.json"]
-    if not run_cmd(cmd3, "Semantic Embeddings"): return False
+    # Batch directory mode:
+    python scripts/clip_indexer_allphasesUpdated.py --batch episodes/ --show rick_and_morty
+        """,
+    )
 
-    # Phase 4: YOLO Tagging
-    # Note: --target-dir ensures we only run YOLO on this specific episode to save time
-    cmd4 = [sys.executable, "scripts/clip_indexer_yolo.py", "--weights", yolo_weights, "--index", "clip_index.json", "--target-dir", prefix]
-    if not run_cmd(cmd4, "YOLO Visual Tagging"): return False
+    input_group = parser.add_mutually_exclusive_group(required=True)
+    input_group.add_argument(
+        "--episode",
+        type=str,
+        help="Absolute or relative path to a single episode MP4 video file",
+    )
+    input_group.add_argument(
+        "--batch",
+        type=str,
+        help="Path to a directory containing multiple episode MP4 video files",
+    )
 
-    # Phase 5: Episode Summary
-    # episode_indexer.py expects paths relative to the subtitles dir or absolute paths for --single
-    # Passing the absolute path ensures it works securely
-    cmd5 = [sys.executable, "scripts/episode_indexer.py", "--single", str(srt_path.absolute())]
-    if not run_cmd(cmd5, "Episode Summary Extraction"): return False
+    parser.add_argument(
+        "--show",
+        type=str,
+        default=None,
+        help="Show slug identifier (default: active show from config)",
+    )
+    parser.add_argument(
+        "--srt-dir",
+        type=str,
+        default=None,
+        help="Optional directory containing matching .srt subtitle files",
+    )
 
-    log.info(f"\n🎉 ALL 5 PHASES COMPLETE FOR {prefix}!\n")
-    return True
-
-def main():
-    parser = argparse.ArgumentParser(description="Master orchestration script to run all 5 phases of clip indexing.")
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--episode", type=str, help="Path to a single episode video (e.g. episodes/s1e1.mp4)")
-    group.add_argument("--batch", type=str, help="Path to a directory containing multiple .mp4 episodes")
-    
-    parser.add_argument("--show", type=str, required=True, help="Show slug (e.g. rick_and_morty)")
-    parser.add_argument("--yolo-weights", type=str, default="yolo_wt/20epochs.pt", help="Path to YOLO weights")
-    parser.add_argument("--threshold", type=float, default=27.0, help="Scene change sensitivity (default: 27.0)")
-    
     args = parser.parse_args()
-    
+
+    start_time = time.time()
+    pipeline_cfg = load_pipeline_config()
+    show_slug, show_config = get_active_show(args.show)
+
+    srt_dir_arg = Path(args.srt_dir).resolve() if args.srt_dir else None
+
+    weights_path = PROJECT_ROOT / "yolo_wt" / "20epochs.pt"
+    if not weights_path.exists():
+        candidate_weights = list((PROJECT_ROOT / "yolo_wt").glob("*.pt"))
+        if candidate_weights:
+            weights_path = candidate_weights[0]
+        else:
+            log_warning(f"Default YOLO weights file not found at {weights_path}")
+
+    episodes_to_process: List[Path] = []
     if args.episode:
-        run_single_episode(Path(args.episode), args.show, args.yolo_weights, args.threshold)
-        
+        ep_path = Path(args.episode).resolve()
+        episodes_to_process.append(ep_path)
     elif args.batch:
-        batch_dir = Path(args.batch)
-        if not batch_dir.exists() or not batch_dir.is_dir():
-            log.error(f"Batch directory not found: {batch_dir}")
+        batch_path = Path(args.batch).resolve()
+        if not batch_path.exists() or not batch_path.is_dir():
+            log_error(f"Batch directory does not exist or is not a directory: {batch_path}")
             sys.exit(1)
-            
-        videos = list(batch_dir.glob("*.mp4"))
-        videos.extend(batch_dir.glob("*.mkv"))
-        
-        if not videos:
-            log.warning(f"No video files (.mp4, .mkv) found in {batch_dir}")
-            sys.exit(0)
-            
-        log.info(f"Found {len(videos)} episodes in batch directory. Starting batch process...")
-        success_count = 0
-        
-        for video_path in sorted(videos):
-            if run_single_episode(video_path, args.show, args.yolo_weights, args.threshold):
-                success_count += 1
-                
-        log.info(f"Batch complete. {success_count}/{len(videos)} episodes processed successfully.")
+        raw_mp4s = sorted(list(batch_path.rglob("*.mp4")))
+        episodes_to_process = [
+            p for p in raw_mp4s if "_scene_" not in p.name and not p.name.startswith(".")
+        ]
+        log_info(f"Discovered {len(episodes_to_process)} episode MP4 files in batch directory.")
+
+    if not episodes_to_process:
+        log_error("No episode video files found to process.")
+        sys.exit(1)
+
+    succeeded_count = 0
+    failed_count = 0
+    total_count = len(episodes_to_process)
+
+    for idx, ep_file in enumerate(episodes_to_process, 1):
+        success = process_episode(
+            episode_mp4=ep_file,
+            show_slug=show_slug,
+            show_config=show_config,
+            pipeline_cfg=pipeline_cfg,
+            srt_dir_arg=srt_dir_arg,
+            weights_path=weights_path,
+            episode_index=idx,
+            total_episodes=total_count,
+        )
+        if success:
+            succeeded_count += 1
+        else:
+            failed_count += 1
+
+        if not success and args.episode:
+            sys.exit(1)
+
+    elapsed_seconds = time.time() - start_time
+    log_header("WORKFLOW EXECUTION SUMMARY")
+    log_info(f"Total execution time: {round(elapsed_seconds, 2)} seconds")
+    log_info(f"Total episodes scanned: {total_count}")
+    log_info(f"Succeeded ingestion runs: {succeeded_count}")
+    if failed_count > 0:
+        log_warning(f"Failed ingestion runs: {failed_count}")
+
 
 if __name__ == "__main__":
     main()
