@@ -94,6 +94,45 @@ def extract_theme_mentions(text: str, show_config: dict) -> set:
     return mentions
 
 
+def parse_clip_identity(filename: str) -> tuple:
+    """Parse episode and scene number from a clip filename.
+
+    Expected format: s{season}e{episode}_scene_{number}.mp4
+    Returns (episode_key, scene_number) or (None, None) if unparseable.
+    """
+    match = re.match(r"(s\d+e\d+)_scene_(\d+)", filename, re.IGNORECASE)
+    if match:
+        return match.group(1).lower(), int(match.group(2))
+    return None, None
+
+
+def find_adjacent_clips(clip: dict, clips: list, used_filenames: set,
+                        max_distance: int = 5) -> list:
+    """Find clips from the same episode within max_distance scenes.
+
+    Returns a list of (clip, distance) tuples sorted by distance,
+    excluding clips already in the used set.
+    """
+    ep_key, scene_num = parse_clip_identity(clip.get("filename", ""))
+    if ep_key is None:
+        return []
+
+    candidates = []
+    for c in clips:
+        if _is_banned_clip(c):
+            continue
+        if c.get("filename", "") in used_filenames:
+            continue
+        c_ep, c_scene = parse_clip_identity(c.get("filename", ""))
+        if c_ep == ep_key and c_scene is not None and c_scene != scene_num:
+            dist = abs(c_scene - scene_num)
+            if dist <= max_distance:
+                candidates.append((c, dist))
+
+    candidates.sort(key=lambda x: x[1])
+    return candidates
+
+
 def _is_banned_clip(clip: dict) -> bool:
     """Check if a candidate clip is an outro, intro, end credits, or vanity card."""
     fname = clip.get("filename", "").lower()
@@ -105,7 +144,7 @@ def _is_banned_clip(clip: dict) -> bool:
         "credits", "outro", "ending credits", "end credits", "theme song",
         "title card", "executive producer", "adult swim", "directed by",
         "written by", "logo", "vanity card", "production company", "created by",
-        "black screen"
+        "black screen", "my-subs", "wwwmysubsco"
     }
 
     if any(term in fname for term in ("outro", "credit", "ending", "intro")):
@@ -120,11 +159,40 @@ def _is_banned_clip(clip: dict) -> bool:
     return False
 
 
+def calculate_dominant_episode(full_script: str, clips: list) -> str:
+    """Find the episode prefix that shares the most keywords with the script."""
+    script_keywords = extract_keywords(full_script)
+    if not script_keywords:
+        return None
+
+    episode_scores = {}
+    for clip in clips:
+        ep_key, _ = parse_clip_identity(clip.get("filename", ""))
+        if not ep_key:
+            continue
+        
+        clip_action = _normalize(clip.get("action", ""))
+        clip_tags = {str(t).lower() for t in clip.get("tags", [])}
+        action_words = extract_keywords(clip_action)
+        
+        overlap = script_keywords & (action_words | clip_tags)
+        episode_scores[ep_key] = episode_scores.get(ep_key, 0) + len(overlap)
+
+    if not episode_scores:
+        return None
+
+    best_ep = max(episode_scores, key=episode_scores.get)
+    if episode_scores[best_ep] > 0:
+        return best_ep
+    return None
+
+
 # ============================================================================
 # Clip scoring — keyword strategy
 # ============================================================================
 
-def score_clip_keyword(segment_text: str, clip: dict, show_config: dict) -> float:
+def score_clip_keyword(segment_text: str, clip: dict, show_config: dict,
+                       seg_characters: set = None, seg_locations: set = None) -> float:
     """Score a clip against a narration segment using keyword matching.
 
     Scoring weights:
@@ -138,8 +206,10 @@ def score_clip_keyword(segment_text: str, clip: dict, show_config: dict) -> floa
 
     # Extract features from segment
     seg_keywords = extract_keywords(segment_text)
-    seg_characters = extract_character_mentions(segment_text, show_config)
-    seg_locations = extract_location_mentions(segment_text, show_config)
+    if seg_characters is None:
+        seg_characters = extract_character_mentions(segment_text, show_config)
+    if seg_locations is None:
+        seg_locations = extract_location_mentions(segment_text, show_config)
     seg_themes = extract_theme_mentions(segment_text, show_config)
 
     # Clip metadata
@@ -173,15 +243,39 @@ def score_clip_keyword(segment_text: str, clip: dict, show_config: dict) -> floa
 
 
 def match_keyword(segment_text: str, clips: list, show_config: dict,
-                  threshold: int = 1) -> tuple:
-    """Find the best clip using keyword matching."""
+                  threshold: int = 1,
+                  cooldown_set: set = None,
+                  cooldown_penalty: float = -50.0,
+                  dominant_episode_key: str = None,
+                  seg_characters: set = None,
+                  seg_locations: set = None) -> tuple:
+    """Find the best clip using keyword matching.
+
+    Clips whose filenames appear in cooldown_set receive cooldown_penalty
+    added to their score, making them unlikely to win unless no better
+    option exists.
+    """
+    if cooldown_set is None:
+        cooldown_set = set()
+
     best_clip = None
-    best_score = 0.0
+    best_score = -float("inf")
 
     for clip in clips:
         if _is_banned_clip(clip):
             continue
-        s = score_clip_keyword(segment_text, clip, show_config)
+        s = score_clip_keyword(segment_text, clip, show_config, seg_characters, seg_locations)
+
+        # Dominant episode bonus
+        if dominant_episode_key:
+            ep_key, _ = parse_clip_identity(clip.get("filename", ""))
+            if ep_key == dominant_episode_key:
+                s += 2.0
+
+        # Apply cooldown penalty if this clip was recently used
+        if clip.get("filename", "") in cooldown_set:
+            s += cooldown_penalty
+
         if s > best_score:
             best_score = s
             best_clip = clip
@@ -204,12 +298,24 @@ def cosine_similarity(v1, v2):
     return dot_product / (norm1 * norm2)
 
 
-def match_semantic(segment_text: str, clips: list, show_config: dict, embedding_model, threshold: float = 3.0) -> tuple:
+def match_semantic(segment_text: str, clips: list, show_config: dict,
+                   embedding_model, threshold: float = 3.0,
+                   cooldown_set: set = None,
+                   cooldown_penalty: float = -50.0,
+                   dominant_episode_key: str = None,
+                   seg_characters: set = None,
+                   seg_locations: set = None) -> tuple:
     """Find the best clip using Vector Embeddings (Semantic Search)."""
-    best_clip = None
-    best_score = -1.0
+    if cooldown_set is None:
+        cooldown_set = set()
 
-    seg_characters = extract_character_mentions(segment_text, show_config)
+    best_clip = None
+    best_score = -float("inf")
+
+    if seg_characters is None:
+        seg_characters = extract_character_mentions(segment_text, show_config)
+    if seg_locations is None:
+        seg_locations = extract_location_mentions(segment_text, show_config)
     seg_keywords = extract_keywords(segment_text)
     segment_embedding = embedding_model.encode(segment_text).tolist()
 
@@ -233,10 +339,15 @@ def match_semantic(segment_text: str, clips: list, show_config: dict, embedding_
                 score -= 4.0
 
         # Location match bonus
-        seg_locations = extract_location_mentions(segment_text, show_config)
         clip_location = clip.get("location", "").lower()
         if clip_location and clip_location in seg_locations:
             score += 2.0
+            
+        # Dominant episode bonus
+        if dominant_episode_key:
+            ep_key, _ = parse_clip_identity(clip.get("filename", ""))
+            if ep_key == dominant_episode_key:
+                score += 2.0
 
         # Enriched episode summary RAG overlap bonus
         ep_summary = clip.get("episode_summary", "").lower()
@@ -244,6 +355,10 @@ def match_semantic(segment_text: str, clips: list, show_config: dict, embedding_
             ep_keywords = extract_keywords(ep_summary)
             overlap = seg_keywords & ep_keywords
             score += len(overlap) * 1.5
+
+        # Apply cooldown penalty
+        if clip.get("filename", "") in cooldown_set:
+            score += cooldown_penalty
 
         if score > best_score:
             best_score = score
@@ -362,33 +477,60 @@ def build_manifest(caption_data: dict, clips: list, show_config: dict,
                    llm_config: dict) -> dict:
     """Build an assembly manifest from captions and clip index.
 
-    Parameters
-    ----------
-    caption_data : dict
-        Output from captioner.py — must have "audio_file" and "segments" keys.
-        Each segment has "id", "text", "start", "end", "words".
-    clips : list
-        List of clip metadata dicts from clip_index.json.
-    show_config : dict
-        The active show's config section.
-    strategy : str
-        "keyword", "semantic", or "llm".
-    matching_config : dict
-        clip_matching section from pipeline_config.yaml.
-    llm_config : dict
-        llm section from pipeline_config.yaml.
-
-    Returns
-    -------
-    dict
-        Assembly manifest ready for assembler.py.
+    Maintains a cooldown window to prevent the same clip from being
+    selected for consecutive segments. When a top match is on cooldown,
+    prefers an adjacent scene from the same episode for visual continuity.
     """
     threshold = matching_config.get("keyword_match_threshold", 1)
     fallback = matching_config.get("fallback", "ai_image")
     max_clip_dur = matching_config.get("max_clip_duration_seconds", 5)
+    min_clip_dur = matching_config.get("min_clip_duration_seconds", 1.5)
+
+    # Anti-repetition settings
+    cooldown_size = matching_config.get("cooldown_window", 10)
+    cooldown_penalty = matching_config.get("cooldown_penalty", -50.0)
+    prefer_adjacent = matching_config.get("prefer_adjacent_episode", True)
+
+    # Pre-filter clips by duration
+    eligible_clips = [
+        c for c in clips
+        if not _is_banned_clip(c)
+        and min_clip_dur <= c.get("duration_seconds", 0) <= max_clip_dur
+    ]
+    log.info(
+        "Eligible clips after duration filter (%.1f-%.1fs): %d/%d",
+        min_clip_dur, max_clip_dur, len(eligible_clips), len(clips),
+    )
+
+    # If filtering removed too many clips, fall back to the full list
+    if len(eligible_clips) < 10:
+        log.warning("Too few clips after duration filter, using all %d clips", len(clips))
+        eligible_clips = [c for c in clips if not _is_banned_clip(c)]
+
+    # Global Episode Affinity
+    full_script = " ".join(seg.get("text", "") for seg in caption_data.get("segments", []))
+    dominant_episode_key = calculate_dominant_episode(full_script, clips)
+    if dominant_episode_key:
+        log.info("Dominant episode detected: %s", dominant_episode_key)
 
     manifest_segments = []
-    stats = {"matched": 0, "fallback": 0, "total": 0}
+    stats = {"matched": 0, "fallback": 0, "total": 0, "adjacent_used": 0}
+
+    # Cooldown tracking: deque of recently used filenames
+    from collections import deque
+    cooldown_window = deque(maxlen=cooldown_size)
+    cooldown_set = set()  # O(1) lookup mirror of the deque
+
+    def _push_cooldown(filename: str):
+        """Add a filename to cooldown, evicting the oldest if full."""
+        if len(cooldown_window) == cooldown_window.maxlen:
+            evicted = cooldown_window[0]
+            cooldown_set.discard(evicted)
+        cooldown_window.append(filename)
+        cooldown_set.add(filename)
+
+    active_characters = set()
+    active_locations = set()
 
     for seg in caption_data.get("segments", []):
         stats["total"] += 1
@@ -399,37 +541,80 @@ def build_manifest(caption_data: dict, clips: list, show_config: dict,
             log.warning("Segment %d has empty text, skipping", seg_id)
             continue
 
+        # Subject Persistence
+        current_chars = extract_character_mentions(seg_text, show_config)
+        current_locs = extract_location_mentions(seg_text, show_config)
+
+        if current_chars:
+            active_characters = current_chars
+        if current_locs:
+            active_locations = current_locs
+
         best_clip = None
         score = 0.0
 
-        # --- Matching ---
-        if strategy == "semantic" and clips:
-            # We lazy load the model here only if strategy is semantic
+        # --- Matching (with cooldown penalty baked in) ---
+        if strategy == "semantic" and eligible_clips:
             if not hasattr(build_manifest, "embedding_model"):
                 try:
                     from sentence_transformers import SentenceTransformer
                     log.info("Loading SentenceTransformer model for semantic matching...")
                     build_manifest.embedding_model = SentenceTransformer('all-MiniLM-L6-v2')
                 except ImportError:
-                    log.error("sentence-transformers not installed! Falling back to keyword matching.")
+                    log.error("sentence-transformers not installed! Falling back to keyword.")
                     strategy = "keyword"
-            
+
             if strategy == "semantic":
                 best_clip, score = match_semantic(
-                    seg_text, clips, show_config, build_manifest.embedding_model, threshold=3.0
+                    seg_text, eligible_clips, show_config,
+                    build_manifest.embedding_model, threshold=3.0,
+                    cooldown_set=cooldown_set,
+                    cooldown_penalty=cooldown_penalty,
+                    dominant_episode_key=dominant_episode_key,
+                    seg_characters=active_characters,
+                    seg_locations=active_locations,
                 )
 
-        if strategy == "llm" and clips:
-            best_clip, score = match_llm(seg_text, clips, llm_config)
-            # Fall back to keyword if LLM fails
+        if strategy == "llm" and eligible_clips:
+            best_clip, score = match_llm(seg_text, eligible_clips, llm_config)
             if best_clip is None:
                 best_clip, score = match_keyword(
-                    seg_text, clips, show_config, threshold
+                    seg_text, eligible_clips, show_config, threshold,
+                    cooldown_set=cooldown_set,
+                    cooldown_penalty=cooldown_penalty,
+                    dominant_episode_key=dominant_episode_key,
+                    seg_characters=active_characters,
+                    seg_locations=active_locations,
                 )
-        elif strategy == "keyword" and clips:
+        elif strategy == "keyword" and eligible_clips:
             best_clip, score = match_keyword(
-                seg_text, clips, show_config, threshold
+                seg_text, eligible_clips, show_config, threshold,
+                cooldown_set=cooldown_set,
+                cooldown_penalty=cooldown_penalty,
+                dominant_episode_key=dominant_episode_key,
+                seg_characters=active_characters,
+                seg_locations=active_locations,
             )
+
+        # --- Adjacency fallback ---
+        # If the best clip IS in cooldown (score was penalized but still won),
+        # try to find a nearby scene from the same episode instead.
+        if (best_clip is not None
+                and prefer_adjacent
+                and best_clip.get("filename", "") in cooldown_set):
+            adjacent = find_adjacent_clips(
+                best_clip, eligible_clips, cooldown_set, max_distance=5,
+            )
+            if adjacent:
+                adj_clip, dist = adjacent[0]
+                log.info(
+                    "Segment %d: swapped cooldown clip '%s' -> adjacent '%s' (dist=%d)",
+                    seg_id, best_clip.get("filename", "?"),
+                    adj_clip.get("filename", "?"), dist,
+                )
+                best_clip = adj_clip
+                score = score - cooldown_penalty  # restore original score roughly
+                stats["adjacent_used"] += 1
 
         # --- Build manifest entry ---
         entry = {
@@ -441,15 +626,28 @@ def build_manifest(caption_data: dict, clips: list, show_config: dict,
         }
 
         if best_clip is not None:
+            clip_filename = best_clip.get("filename", "")
             entry["visual_type"] = "clip"
-            entry["visual_source"] = best_clip.get("filename", "")
-            # Clip start: use 0.0 (beginning of clip) — assembler will trim
+            entry["visual_source"] = clip_filename
             entry["clip_start"] = 0.0
             entry["match_score"] = round(score, 2)
             stats["matched"] += 1
+
+            # Update active memory based on the chosen clip if it has metadata
+            clip_chars = {c.lower() for c in best_clip.get("characters", [])}
+            clip_loc = best_clip.get("location", "").lower()
+            if clip_chars:
+                active_characters = clip_chars
+            if clip_loc:
+                active_locations = {clip_loc}
+
+            # Push to cooldown
+            _push_cooldown(clip_filename)
+
             log.info(
-                "Segment %d → clip '%s' (score=%.1f)",
-                seg_id, best_clip.get("filename", "?"), score,
+                "Segment %d -> clip '%s' (score=%.1f, cooldown=%d/%d)",
+                seg_id, clip_filename, score,
+                len(cooldown_set), cooldown_size,
             )
         else:
             # Fallback
@@ -461,14 +659,14 @@ def build_manifest(caption_data: dict, clips: list, show_config: dict,
             elif fallback == "generic_broll":
                 entry["visual_type"] = "clip"
                 entry["visual_source"] = "__generic_broll__"
-            else:  # "black"
+            else:
                 entry["visual_type"] = "black"
                 entry["visual_source"] = ""
 
             entry["clip_start"] = 0.0
             entry["match_score"] = 0.0
             stats["fallback"] += 1
-            log.info("Segment %d → fallback (%s)", seg_id, fallback)
+            log.info("Segment %d -> fallback (%s)", seg_id, fallback)
 
         manifest_segments.append(entry)
 
@@ -479,8 +677,9 @@ def build_manifest(caption_data: dict, clips: list, show_config: dict,
     }
 
     log.info(
-        "Matching complete: %d/%d matched, %d fallback",
+        "Matching complete: %d/%d matched, %d fallback, %d adjacent swaps",
         stats["matched"], stats["total"], stats["fallback"],
+        stats.get("adjacent_used", 0),
     )
     return manifest
 
