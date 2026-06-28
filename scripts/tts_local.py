@@ -21,7 +21,7 @@ Requirements for Piper:
     (or install Piper standalone: https://github.com/rhasspy/piper)
 
 Requirements for Kokoro:
-    pip install soundfile kokoro-onnx
+    pip install torch numpy soundfile kokoro
 """
 
 import argparse
@@ -108,7 +108,6 @@ def synthesize_file(
             input=text,
             capture_output=True,
             text=True,
-            encoding="utf-8",
             timeout=300,  # 5 min timeout per file
         )
         if result.returncode != 0:
@@ -137,19 +136,40 @@ def synthesize_file(
 
 
 # ---------------------------------------------------------------------------
-# Kokoro TTS
+# Kokoro TTS (PyTorch)
 # ---------------------------------------------------------------------------
+_KOKORO_PIPELINE = None
+
+def get_kokoro_pipeline(lang: str):
+    global _KOKORO_PIPELINE
+    if _KOKORO_PIPELINE is not None:
+        return _KOKORO_PIPELINE
+
+    import torch
+    from kokoro import KModel, KPipeline
+    
+    KOKORO_HF_REPO = "hexgrad/Kokoro-82M"
+    
+    log.info("Loading Kokoro-82M model from HF...")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    model = KModel(repo_id=KOKORO_HF_REPO).to(device).eval()
+    
+    log.info("Creating Kokoro Pipeline...")
+    _KOKORO_PIPELINE = KPipeline(
+        lang_code=lang,
+        repo_id=KOKORO_HF_REPO,
+        model=model
+    )
+    return _KOKORO_PIPELINE
 def synthesize_file_kokoro(
     text_path: Path,
     output_path: Path,
-    model_path: str,
-    voices_path: str,
     voice: str,
     speed: float,
     lang: str,
 ) -> bool:
     """
-    Synthesize a single text file to .wav using Kokoro standalone engine.
+    Synthesize a single text file to .wav using Kokoro PyTorch engine.
     """
     text = text_path.read_text(encoding="utf-8").strip()
     if not text:
@@ -161,30 +181,19 @@ def synthesize_file_kokoro(
     try:
         import torch
         import soundfile as sf
-        from kokoro import KModel, KPipeline
         import numpy as np
     except ImportError:
-        log.error("kokoro is not installed. Run: pip install kokoro soundfile numpy torch")
+        log.error("Missing dependencies. Run: pip install torch numpy soundfile kokoro")
         return False
 
-    log.info("Synthesizing (Kokoro PyTorch): %s → %s", text_path.name, output_path.name)
+    log.info("Synthesizing (Kokoro): %s -> %s", text_path.name, output_path.name)
 
     try:
-        KOKORO_HF_REPO = "hexgrad/Kokoro-82M"
+        pipeline = get_kokoro_pipeline(lang)
         KOKORO_SAMPLE_RATE = 24000
-
-        device = "cuda" if torch.cuda.is_available() else "cpu"
-        model = KModel(repo_id=KOKORO_HF_REPO).to(device).eval()
-
-        lang_code = "a" if "en" in lang.lower() else lang[0]
-
-        pipeline = KPipeline(
-            lang_code=lang_code,
-            repo_id=KOKORO_HF_REPO,
-            model=model
-        )
-
         audio_chunks = []
+
+        # Generate audio in chunks
         for result in pipeline(text, voice=voice, speed=speed):
             if result.audio is not None:
                 chunk = result.audio
@@ -192,19 +201,22 @@ def synthesize_file_kokoro(
                     chunk = chunk.detach().cpu().numpy()
                 audio_chunks.append(chunk.squeeze())
 
-        if audio_chunks:
-            final_audio = np.concatenate(audio_chunks).astype(np.float32)
-            sf.write(str(output_path), final_audio, KOKORO_SAMPLE_RATE)
-            
-            if output_path.exists() and output_path.stat().st_size > 0:
-                size_kb = output_path.stat().st_size / 1024
-                log.info("  ✓ Generated %s (%.1f KB)", output_path.name, size_kb)
-                return True
-            else:
-                log.error("  ✗ Output file missing or empty: %s", output_path)
-                return False
+        if not audio_chunks:
+            log.error("  ✗ Failed to generate audio chunks.")
+            return False
+
+        # Combine chunks
+        final_audio = np.concatenate(audio_chunks).astype(np.float32)
+        
+        # Save output
+        sf.write(str(output_path), final_audio, KOKORO_SAMPLE_RATE)
+
+        if output_path.exists() and output_path.stat().st_size > 0:
+            size_kb = output_path.stat().st_size / 1024
+            log.info("  ✓ Generated %s (%.1f KB)", output_path.name, size_kb)
+            return True
         else:
-            log.error("Failed to generate audio chunks.")
+            log.error("  ✗ Output file missing or empty: %s", output_path)
             return False
 
     except Exception as e:
@@ -249,11 +261,9 @@ def process_input(
             ok = synthesize_file_kokoro(
                 text_file,
                 output_path,
-                model_path=tts_params.get("model", "kokoro-v1.0.int8.onnx"),
-                voices_path=tts_params.get("voices", "voices-v1.0.bin"),
                 voice=tts_params.get("voice", "af_bella"),
                 speed=tts_params.get("speed", 1.0),
-                lang=tts_params.get("lang", "en-us"),
+                lang=tts_params.get("lang", "a"),
             )
         else: # default to piper
             ok = synthesize_file(
@@ -327,11 +337,9 @@ def main():
     tts_params = {}
     if engine == "kokoro":
         kokoro_cfg = tts_cfg.get("kokoro", {})
-        tts_params["model"] = kokoro_cfg.get("model", "kokoro-v1.0.int8.onnx")
-        tts_params["voices"] = kokoro_cfg.get("voices", "voices-v1.0.bin")
         tts_params["voice"] = kokoro_cfg.get("voice", "af_bella")
         tts_params["speed"] = kokoro_cfg.get("speed", 1.0)
-        tts_params["lang"] = kokoro_cfg.get("lang", "en-us")
+        tts_params["lang"] = kokoro_cfg.get("lang", "a")
     else:
         piper_cfg = tts_cfg.get("piper", {})
         tts_params["piper_model"] = args.model or piper_cfg.get("model", "en_US-lessac-medium")
