@@ -41,45 +41,41 @@ flowchart TD
     classDef db fill:#e76f51,stroke:#f4a261,stroke-width:2px,color:#ffffff;
 
     subgraph Phase1 ["1. Ingestion & Indexing Phase (clip_indexer_allphasesUpdated.py)"]
-        RawMP4["Whole Episode MP4"] --> Split["scene_splitter.py"]
-        Split --> Sub["clip_indexer_subtitles.py"]
-        Sub --> Embed["clip_indexer_embed.py"]
-        Embed --> YOLO["clip_indexer_yolo.py"]
-        YOLO --> Enrich["enrich_clip_characters.py"]
-        RawMP4 --> EpIdx["episode_indexer.py"]
+        RawMP4["Whole Episode MP4"]:::data --> Split["scene_splitter.py"]:::script
+        Split --> Sub["clip_indexer_subtitles.py"]:::script
+        Sub --> Embed["clip_indexer_embed.py"]:::script
+        Embed --> YOLO["clip_indexer_yolo.py"]:::script
+        YOLO --> Enrich["enrich_clip_characters.py"]:::script
+        RawMP4 --> EpIdx["episode_indexer.py"]:::script
     end
 
     subgraph Phase2 ["2. Hybrid RAG Vectorization (rag_manager.py)"]
-        ColSub["ChromaDB Collection: subtitles"]
-        ColEp["ChromaDB Collection: episodes.json"]
-        ColWiki["ChromaDB Collection: wiki.json"]
-        ColTopic["ChromaDB Collection: topics/theories.json"]
+        ColSub["ChromaDB Collection: subtitles"]:::db
+        ColEp["ChromaDB Collection: episodes.json"]:::db
+        ColWiki["ChromaDB Collection: wiki.json"]:::db
+        ColTopic["ChromaDB Collection: topics/theories.json"]:::db
     end
 
     Enrich --> ColSub
     EpIdx --> ColEp
-    ExtWiki["External Wiki Data"] --> ColWiki
-    ExtTopics["Mining Queue Topics"] --> ColTopic
+    ExtWiki["External Wiki Data"]:::data --> ColWiki
+    ExtTopics["Mining Queue Topics"]:::data --> ColTopic
 
     subgraph Phase3 ["3. Script Generation & Assembly Phase"]
-        TopicIn["Topic Input"] --> HyDE["HyDE Monologue Expansion"]
-        HyDE --> Pull["Multi-Vector ChromaDB Pull (12 hits)"]
+        TopicIn["Topic Input"]:::data --> HyDE["HyDE Monologue Expansion"]:::script
+        HyDE --> Pull["Multi-Vector ChromaDB Pull (12 hits)"]:::script
         
         ColSub -.-> Pull
         ColEp -.-> Pull
         ColWiki -.-> Pull
         ColTopic -.-> Pull
 
-        Pull --> Distiller["Llama Context Distiller (Verified Lore Dossier)"]
-        Distiller --> ScriptGen["script_generator.py (4-Act Structure: Hook, Proof, Escalation, Payoff)"]
-        ScriptGen --> Verifier["script_verifier.py (Fluff Sanitization)"]
-        Verifier --> Matcher["clip_matcher.py (+7.0 Character Boost, Outro/Credits Filtering)"]
-        Matcher --> FinalOut["Final MP4 & Metadata Sync"]
+        Pull --> Distiller["Llama Context Distiller (Verified Lore Dossier)"]:::script
+        Distiller --> ScriptGen["script_generator.py (4-Act Structure: Hook, Proof, Escalation, Payoff)"]:::script
+        ScriptGen --> Verifier["script_verifier.py (Fluff Sanitization)"]:::script
+        Verifier --> Matcher["clip_matcher.py (+7.0 Character Boost, Outro/Credits Filtering)"]:::script
+        Matcher --> FinalOut["Final MP4 & Metadata Sync"]:::script
     end
-
-    class RawMP4,TopicIn,ExtWiki,ExtTopics data;
-    class Split,Sub,Embed,YOLO,Enrich,EpIdx,HyDE,Pull,Distiller,ScriptGen,Verifier,Matcher,FinalOut script;
-    class ColSub,ColEp,ColWiki,ColTopic db;
 ```
 
 ---
