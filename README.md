@@ -27,9 +27,9 @@ This repository houses an advanced video automation pipeline designed to curate 
 
 ---
 
-## 🛠️ Pipeline Architecture
+## 🏛️ Master Architecture
 
-The pipeline is split into two massive phases: **Data Ingestion** (Steps 1-4) and **Video Generation** (The Orchestrator). 
+The VibeCodingMax ecosystem is divided into two highly automated subsystems: **Data Ingestion** (building the AI's memory) and **Content Generation** (the Orchestrator). 
 
 All extracted metadata is continuously funneled into a central `clip_index.json` database, which serves as the "brain" for the automated editor.
 
@@ -40,71 +40,60 @@ graph TD;
     classDef nlp fill:#7C3AED,stroke:#6D28D9,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
     classDef vision fill:#059669,stroke:#047857,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
     classDef db fill:#D97706,stroke:#B45309,stroke-width:2px,color:#F8FAFC,rx:15px,ry:15px;
+    classDef generate fill:#BE185D,stroke:#9D174D,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
     classDef render fill:#DC2626,stroke:#B91C1C,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
     classDef final fill:#000000,stroke:#EF4444,stroke-width:3px,color:#FFFFFF,rx:5px,ry:5px;
 
-    A[Raw .mkv Episode]:::raw --> B[1. Scene Splitter]:::process
-    B -->|Generates 400+ Clips| C[2. Subtitle Indexer]:::process
-    C -->|Extracts Text| D[3. Embeddings Indexer]:::nlp
-    D -->|Semantic Search Space| E[4. YOLO Vision Tagger]:::vision
-    E -->|Updates Database| F[(clip_index.json)]:::db
-    
-    F --> G[Video Assembler & Orchestrator]:::render
-    G -->|NVENC Hardware Rendering| H[🎬 Final YouTube Short]:::final
+    subgraph Data Ingestion Phase
+        A[Raw .mkv Episode]:::raw --> B[1. Scene Splitter]:::process
+        B --> C[2. Subtitle Indexer]:::process
+        C --> D[3. Semantic Embeddings]:::nlp
+        D --> E[4. YOLOv8 Vision Tagger]:::vision
+        E --> F[5. Episode Summary]:::nlp
+        F --> G[6. Character Enrichment]:::nlp
+        G --> H[(clip_index.json)]:::db
+    end
+
+    subgraph Content Generation Phase
+        I[Topic Queue]:::raw --> J[Ollama Script Generator]:::generate
+        J --> K[TTS Voice Cloning]:::generate
+        K --> L[Semantic Clip Matcher]:::process
+        H -.->|Vector Search| L
+        L --> M[FFmpeg NVENC Assembler]:::render
+        M --> N[🎬 Final YouTube Short]:::final
+    end
 ```
 
 ---
 
-## 🚀 How It Works: The Ingestion Phase
+## 🚀 The Automated Pipeline
 
-To ingest a new full-length episode into the AI's "memory", activate your virtual environment and run the pipeline sequence below:
-
-### Step 1: Chop the Episode into Scenes
-The first step is completely breaking down a 20-minute episode into usable, bite-sized components. `scene_splitter.py` analyzes the pixels of every frame to detect camera angle changes, and triggers an FFmpeg cut. 
-- **Input:** A raw `.mkv` or `.mp4` episode file.
-- **Output:** Hundreds of perfectly cut `.mp4` scene files saved into a `split_clips` folder, along with a JSON manifest of their exact timestamps.
-```powershell
-.\venv\Scripts\python scripts/scene_splitter.py "clips/rick_and_morty/Episode/episode.mkv" --output "clips/rick_and_morty/" --prefix "s5e6"
-```
-
-### Step 2: Auto-Tag Subtitles (Database Creation)
-Now that we have hundreds of mute video clips, the AI needs to know what is happening in them. This script reads the master subtitle `.srt` file, compares it to the timecodes from Step 1, and assigns the text to the correct video clip.
-- **Output:** The clips are officially registered into the master `clip_index.json` database. They are tagged with their Season, Episode, Filepath, and exact spoken dialogue.
-```powershell
-.\venv\Scripts\python scripts/clip_indexer_subtitles.py --manifest "clips/rick_and_morty/Episode/split_clips/manifest.json" --srt "subtitles/episode.srt" --show "rick_and_morty"
-```
-
-### Step 3: Generate Semantic Embeddings (NLP)
-A massive upgrade to the database. The AI reads the dialogue assigned to every single clip and runs it through a Hugging Face `SentenceTransformer` model. 
-- **Output:** It appends a massive mathematical array (an embedding) to the database for every clip. This unlocks the ability to search your video clips by context rather than just exact keyword matches! *(Note: Set `$env:CUDA_VISIBLE_DEVICES="-1"` if PyTorch hits architecture limits on your specific GPU).*
-```powershell
-.\venv\Scripts\python scripts/clip_indexer_embed.py
-```
-
-### Step 4: YOLO Vision Tagging (Computer Vision)
+### Phase A: Data Ingestion (`clip_indexer_allphasesUpdated.py`)
 <img src="assets/yolo_vision.png" alt="YOLOv8 Object Detection HUD" width="100%">
 
-Finally, the script loads a specialized YOLOv8 object detection model. It physically opens every single video clip, looks at the frames, and detects which characters are on screen.
-- **Output:** Updates the `characters` array in `clip_index.json` (e.g. `['Rick', 'Morty']`), allowing the orchestrator to filter clips by who is currently standing in the scene!
+Instead of running manual scripts, the entire episode ingestion sequence has been streamlined into a single master script with smart caching and CPU/GPU fallback optimizations.
+
+1. **Scene Splitter**: Uses computer vision to analyze frames and losslessly cut full-length episodes exactly on camera cuts. Automatically skips if clips already exist to save time.
+2. **Subtitle Indexer**: Cross-references `.srt` subtitle files with scene timecodes to perfectly assign spoken dialogue to each micro-clip.
+3. **Semantic Embeddings**: Uses Hugging Face's `SentenceTransformers` (running highly optimized on CPU to prevent hardware mismatches) to create dense 384-dimensional vector embeddings of the dialogue. Skips re-embedding unchanged clips for blazing fast speeds.
+4. **YOLO Vision Tagging**: A custom-trained YOLOv8 object detection model physically opens every video clip to detect which characters (e.g., Rick, Morty) are on screen.
+5. **Episode Indexer**: Uses a local Ollama LLM to generate a canonical summary of the episode for metadata tracking.
+6. **Character Enrichment**: A secondary NLP pass that scans subtitles for hidden character aliases, updating the database and selectively re-embedding only modified clips.
+
 ```powershell
-.\venv\Scripts\python scripts/clip_indexer_yolo.py --weights yolo_wt/20epochs.pt
+.\venv\Scripts\python scripts/clip_indexer_allphasesUpdated.py --episode "clips/S7/E1/video.mkv" --show rick_and_morty
 ```
 
 ---
 
-## 🎬 How It Works: The Generation Phase
+### Phase B: Content Generation (`process_queue.py`)
 
-Once the clips are safely resting in `clip_index.json`, the real magic begins. 
+Once the database is populated, the `process_queue.py` orchestrator takes over to autonomously generate content. You simply provide it with a topic in `queue.json` (e.g., "Rick's best insults") and it handles the rest:
 
-### The Orchestrator (`process_queue.py`)
-This is the automated director. You provide it with a topic queue (like "Rick's best insults"). It queries the embeddings space and the YOLO tags in `clip_index.json` to find the 5 or 6 most relevant micro-clips to fit the theme. 
-
-### The Assembler (`assembler.py`)
-Once the Orchestrator picks the clips, it hands them to the Assembler. The Assembler:
-1. Resizes the horizontal 16:9 clips into vertical 9:16 Shorts format (blurring the background).
-2. Uses Text-to-Speech (TTS) to generate voiceovers if needed.
-3. Automatically burns stylized captions onto the screen.
-4. Uses FFmpeg's `h264_nvenc` to stitch the video fragments together and render the final 60-second video entirely on the GPU.
+1. **Script Generation**: Pulls topics from the queue and feeds them into a local LLM (Ollama) to write highly engaging, short-form scripts.
+2. **Voice Cloning (TTS)**: Converts the generated script into high-quality, cloned character audio.
+3. **Clip Matching**: Queries the vector database using semantic similarity to find the perfect micro-clips that visually match the script's "vibe" and characters.
+4. **Final Assembly**: `assembler.py` resizes the clips to 9:16 vertical format, burns dynamic captions onto the screen, and uses FFmpeg's `h264_nvenc` to render the final 1080p video entirely on the GPU in seconds.
 
 ---
 
