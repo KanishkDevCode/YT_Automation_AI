@@ -89,7 +89,7 @@ def main():
 
         # Build the orchestrator command
         cmd = [
-            sys.executable, "scripts/orchestrator_noImage_gpuVoice.py",
+            sys.executable, "scripts/orchestrator.py",
             "--topic", topic,
             "--phase", "all",
             "--auto-approve",

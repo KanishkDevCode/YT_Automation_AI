@@ -477,10 +477,19 @@ def assemble_video(manifest: dict, audio_path: str, output_path: str,
 
     try:
         # -- Step 1: Prepare each segment's visual -------------
+        # Get total audio duration to prevent freezing at the end
+        total_audio_duration = get_media_duration(audio_path)
+
         segment_files = []
-        for seg in segments:
+        for i, seg in enumerate(segments):
             seg_id = seg.get("id", len(segment_files))
             duration = seg.get("end", 0) - seg.get("start", 0)
+            
+            # Prevent the video from freezing by extending the last clip to cover trailing audio silence
+            if i == len(segments) - 1 and total_audio_duration > 0:
+                extended_duration = total_audio_duration - seg.get("start", 0)
+                if extended_duration > duration:
+                    duration = extended_duration
             if duration <= 0:
                 log.warning("Segment %d has zero/negative duration, skipping", seg_id)
                 continue

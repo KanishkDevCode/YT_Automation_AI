@@ -159,57 +159,52 @@ def synthesize_file_kokoro(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     try:
+        import torch
         import soundfile as sf
-        from kokoro_onnx import Kokoro
+        from kokoro import KModel, KPipeline
+        import numpy as np
     except ImportError:
-        log.error("kokoro-onnx is not installed. Run: pip install soundfile kokoro-onnx")
+        log.error("kokoro is not installed. Run: pip install kokoro soundfile numpy torch")
         return False
 
-    # Check if model files exist, if not we'll download them automatically
-    import urllib.request
-    import os
-
-    if not os.path.exists(model_path):
-        log.info(f"Downloading Kokoro model to {model_path}...")
-        try:
-            urllib.request.urlretrieve("https://github.com/thewh1teagle/kokoro-onnx/releases/download/model/kokoro-v0_19.onnx", model_path)
-            log.info("Download complete.")
-        except Exception as e:
-            log.error(f"Failed to download model: {e}")
-            return False
-
-    if not os.path.exists(voices_path):
-        log.info(f"Downloading Kokoro voices to {voices_path}...")
-        try:
-            urllib.request.urlretrieve("https://github.com/thewh1teagle/kokoro-onnx/releases/download/model/voices.json", voices_path)
-            log.info("Download complete.")
-        except Exception as e:
-            log.error(f"Failed to download voices: {e}")
-            return False
-
-    log.info("Synthesizing (Kokoro): %s → %s", text_path.name, output_path.name)
+    log.info("Synthesizing (Kokoro PyTorch): %s → %s", text_path.name, output_path.name)
 
     try:
-        # Initialize the standalone engine
-        kokoro = Kokoro(model_path, voices_path)
-        
-        # Generate the audio
-        samples, sample_rate = kokoro.create(
-            text,
-            voice=voice,
-            speed=speed,
-            lang=lang
+        KOKORO_HF_REPO = "hexgrad/Kokoro-82M"
+        KOKORO_SAMPLE_RATE = 24000
+
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        model = KModel(repo_id=KOKORO_HF_REPO).to(device).eval()
+
+        lang_code = "a" if "en" in lang.lower() else lang[0]
+
+        pipeline = KPipeline(
+            lang_code=lang_code,
+            repo_id=KOKORO_HF_REPO,
+            model=model
         )
 
-        # Save the output
-        sf.write(str(output_path), samples, sample_rate)
+        audio_chunks = []
+        for result in pipeline(text, voice=voice, speed=speed):
+            if result.audio is not None:
+                chunk = result.audio
+                if isinstance(chunk, torch.Tensor):
+                    chunk = chunk.detach().cpu().numpy()
+                audio_chunks.append(chunk.squeeze())
 
-        if output_path.exists() and output_path.stat().st_size > 0:
-            size_kb = output_path.stat().st_size / 1024
-            log.info("  ✓ Generated %s (%.1f KB)", output_path.name, size_kb)
-            return True
+        if audio_chunks:
+            final_audio = np.concatenate(audio_chunks).astype(np.float32)
+            sf.write(str(output_path), final_audio, KOKORO_SAMPLE_RATE)
+            
+            if output_path.exists() and output_path.stat().st_size > 0:
+                size_kb = output_path.stat().st_size / 1024
+                log.info("  ✓ Generated %s (%.1f KB)", output_path.name, size_kb)
+                return True
+            else:
+                log.error("  ✗ Output file missing or empty: %s", output_path)
+                return False
         else:
-            log.error("  ✗ Output file missing or empty: %s", output_path)
+            log.error("Failed to generate audio chunks.")
             return False
 
     except Exception as e:
@@ -254,8 +249,8 @@ def process_input(
             ok = synthesize_file_kokoro(
                 text_file,
                 output_path,
-                model_path=tts_params.get("model", "kokoro-v0_19.onnx"),
-                voices_path=tts_params.get("voices", "voices.json"),
+                model_path=tts_params.get("model", "kokoro-v1.0.int8.onnx"),
+                voices_path=tts_params.get("voices", "voices-v1.0.bin"),
                 voice=tts_params.get("voice", "af_bella"),
                 speed=tts_params.get("speed", 1.0),
                 lang=tts_params.get("lang", "en-us"),
@@ -332,8 +327,8 @@ def main():
     tts_params = {}
     if engine == "kokoro":
         kokoro_cfg = tts_cfg.get("kokoro", {})
-        tts_params["model"] = kokoro_cfg.get("model", "kokoro-v0_19.onnx")
-        tts_params["voices"] = kokoro_cfg.get("voices", "voices.json")
+        tts_params["model"] = kokoro_cfg.get("model", "kokoro-v1.0.int8.onnx")
+        tts_params["voices"] = kokoro_cfg.get("voices", "voices-v1.0.bin")
         tts_params["voice"] = kokoro_cfg.get("voice", "af_bella")
         tts_params["speed"] = kokoro_cfg.get("speed", 1.0)
         tts_params["lang"] = kokoro_cfg.get("lang", "en-us")
