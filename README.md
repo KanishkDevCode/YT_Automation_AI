@@ -34,6 +34,40 @@ The VibeCodingMax ecosystem is divided into two highly automated subsystems: **D
 All extracted metadata is continuously funneled into a central `clip_index.json` database, which serves as the "brain" for the automated editor.
 
 ```mermaid
+graph TD;
+    classDef phase fill:#2b2d42,stroke:#8d99ae,stroke-width:2px,color:#edf2f4;
+    classDef script fill:#1d3557,stroke:#457b9d,stroke-width:2px,color:#f1faee;
+    classDef data fill:#2a9d8f,stroke:#264653,stroke-width:2px,color:#ffffff;
+    classDef db fill:#e76f51,stroke:#f4a261,stroke-width:2px,color:#ffffff;
+    classDef final fill:#000000,stroke:#EF4444,stroke-width:3px,color:#FFFFFF,rx:5px,ry:5px;
+
+    subgraph Data Ingestion Phase
+        A[Raw .mkv Episode]:::data --> B[1. Scene Splitter]:::script
+        B --> C[2. Subtitle Indexer]:::script
+        C --> D[3. Semantic Embeddings]:::script
+        D --> E[4. YOLOv8 Vision Tagger]:::script
+        E --> F[5. Episode Summary]:::script
+        F --> G[6. Character Enrichment]:::script
+        G --> H[(clip_index.json)]:::db
+    end
+
+    subgraph Content Generation Phase
+        I[Topic Queue]:::data --> J[Ollama Script Generator]:::phase
+        J --> K[TTS Voice Cloning]:::phase
+        K --> L[Semantic Clip Matcher]:::script
+        H -.->|Vector Search| L
+        L --> M[FFmpeg NVENC Assembler]:::script
+        M --> N[🎬 Final YouTube Short]:::final
+    end
+```
+
+---
+
+## 🔍 Deep Dive: Complete System Architecture
+
+For a more granular look at the exact scripts, ChromaDB collections, and logic flows, here is the expanded architecture:
+
+```mermaid
 flowchart TD
     classDef phase fill:#2b2d42,stroke:#8d99ae,stroke-width:2px,color:#edf2f4;
     classDef script fill:#1d3557,stroke:#457b9d,stroke-width:2px,color:#f1faee;
