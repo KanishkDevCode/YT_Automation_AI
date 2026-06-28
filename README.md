@@ -34,34 +34,80 @@ The VibeCodingMax ecosystem is divided into two highly automated subsystems: **D
 All extracted metadata is continuously funneled into a central `clip_index.json` database, which serves as the "brain" for the automated editor.
 
 ```mermaid
-graph TD;
-    classDef raw fill:#1E293B,stroke:#475569,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
-    classDef process fill:#0284C7,stroke:#0369A1,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
-    classDef nlp fill:#7C3AED,stroke:#6D28D9,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
-    classDef vision fill:#059669,stroke:#047857,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
-    classDef db fill:#D97706,stroke:#B45309,stroke-width:2px,color:#F8FAFC,rx:15px,ry:15px;
-    classDef generate fill:#BE185D,stroke:#9D174D,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
-    classDef render fill:#DC2626,stroke:#B91C1C,stroke-width:2px,color:#F8FAFC,rx:5px,ry:5px;
+flowchart TD
+    classDef phase fill:#2b2d42,stroke:#8d99ae,stroke-width:2px,color:#edf2f4;
+    classDef script fill:#1d3557,stroke:#457b9d,stroke-width:2px,color:#f1faee;
+    classDef data fill:#2a9d8f,stroke:#264653,stroke-width:2px,color:#ffffff;
+    classDef db fill:#e76f51,stroke:#f4a261,stroke-width:2px,color:#ffffff;
+
+    subgraph Phase1 ["1. Ingestion & Indexing Phase (clip_indexer_allphasesUpdated.py)"]
+        RawMP4["Whole Episode MP4"] --> Split["scene_splitter.py"]
+        Split --> Sub["clip_indexer_subtitles.py"]
+        Sub --> Embed["clip_indexer_embed.py"]
+        Embed --> YOLO["clip_indexer_yolo.py"]
+        YOLO --> Enrich["enrich_clip_characters.py"]
+        RawMP4 --> EpIdx["episode_indexer.py"]
+    end
+
+    subgraph Phase2 ["2. Hybrid RAG Vectorization (rag_manager.py)"]
+        ColSub["ChromaDB Collection: subtitles"]
+        ColEp["ChromaDB Collection: episodes.json"]
+        ColWiki["ChromaDB Collection: wiki.json"]
+        ColTopic["ChromaDB Collection: topics/theories.json"]
+    end
+
+    Enrich --> ColSub
+    EpIdx --> ColEp
+    ExtWiki["External Wiki Data"] --> ColWiki
+    ExtTopics["Mining Queue Topics"] --> ColTopic
+
+    subgraph Phase3 ["3. Script Generation & Assembly Phase"]
+        TopicIn["Topic Input"] --> HyDE["HyDE Monologue Expansion"]
+        HyDE --> Pull["Multi-Vector ChromaDB Pull (12 hits)"]
+        
+        ColSub -.-> Pull
+        ColEp -.-> Pull
+        ColWiki -.-> Pull
+        ColTopic -.-> Pull
+
+        Pull --> Distiller["Llama Context Distiller (Verified Lore Dossier)"]
+        Distiller --> ScriptGen["script_generator.py (4-Act Structure: Hook, Proof, Escalation, Payoff)"]
+        ScriptGen --> Verifier["script_verifier.py (Fluff Sanitization)"]
+        Verifier --> Matcher["clip_matcher.py (+7.0 Character Boost, Outro/Credits Filtering)"]
+        Matcher --> FinalOut["Final MP4 & Metadata Sync"]
+    end
+
+    class RawMP4,TopicIn,ExtWiki,ExtTopics data;
+    class Split,Sub,Embed,YOLO,Enrich,EpIdx,HyDE,Pull,Distiller,ScriptGen,Verifier,Matcher,FinalOut script;
+    class ColSub,ColEp,ColWiki,ColTopic db;
+```
+
+---
+
+## 🤖 Multi-Agent LLM Workflow
+
+This pipeline utilizes an interconnected network of specialized agents to ensure factual accuracy and high engagement:
+
+```mermaid
+flowchart TD
+    classDef script fill:#1d3557,stroke:#457b9d,stroke-width:2px,color:#f1faee;
+    classDef data fill:#2a9d8f,stroke:#264653,stroke-width:2px,color:#ffffff;
+    classDef db fill:#e76f51,stroke:#f4a261,stroke-width:2px,color:#ffffff;
     classDef final fill:#000000,stroke:#EF4444,stroke-width:3px,color:#FFFFFF,rx:5px,ry:5px;
 
-    subgraph Data Ingestion Phase
-        A[Raw .mkv Episode]:::raw --> B[1. Scene Splitter]:::process
-        B --> C[2. Subtitle Indexer]:::process
-        C --> D[3. Semantic Embeddings]:::nlp
-        D --> E[4. YOLOv8 Vision Tagger]:::vision
-        E --> F[5. Episode Summary]:::nlp
-        F --> G[6. Character Enrichment]:::nlp
-        G --> H[(clip_index.json)]:::db
-    end
+    T[Approved Topic]:::data --> W[Web Research Agent <br/> LLM 2: DuckDuckGo Search]:::script
+    W --> RD[(Research Fact Dossier <br/> Ground Truth Facts)]:::db
+    
+    T --> SG[Script Generator <br/> LLM 1: Ollama + ChromaDB RAG]:::script
+    SG --> DRAFT[Draft Script]:::data
+    
+    RD --> V[Verifier LLM <br/> LLM 3: Strict Lore Auditor]:::script
+    DRAFT --> V
+    EP[(Episode Anchor DB <br/> Canonical Summaries)]:::db --> V
 
-    subgraph Content Generation Phase
-        I[Topic Queue]:::raw --> J[Ollama Script Generator]:::generate
-        J --> K[TTS Voice Cloning]:::generate
-        K --> L[Semantic Clip Matcher]:::process
-        H -.->|Vector Search| L
-        L --> M[FFmpeg NVENC Assembler]:::render
-        M --> N[🎬 Final YouTube Short]:::final
-    end
+    V -->|Factual Score >= 8/10| PASS([✅ PASS: Save Script]):::final
+    V -->|Hallucinations Detected| CORR[Build Targeted Correction Prompt]:::script
+    CORR -->|Max 2 Iterations| SG
 ```
 
 ---
