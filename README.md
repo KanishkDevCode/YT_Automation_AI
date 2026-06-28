@@ -112,19 +112,37 @@ flowchart TD
 
 ---
 
+## 📁 Repository Structure
+
+```text
+📦 VibeCodingMax
+├── 📁 assets/                 # UI assets, fonts, and graphical banners
+├── 📁 clips/                  # Raw episode MP4s and split scene chunks
+├── 📁 output/                 # Final rendered NVENC hardware-accelerated videos
+├── 📁 scripts/                # Core AI pipeline python scripts
+├── 📁 topics/                 # Queue JSON and approved topic theories
+├── 📁 yolo_wt/                # YOLOv8 custom trained model weights for characters
+├── 📄 clip_index.json         # Master Semantic Vector Database
+├── 📄 config.yaml             # Global pipeline configuration
+├── 📄 show_config.yaml        # Character aliases and Show-specific metadata
+└── 📄 README.md               # Documentation
+```
+
+---
+
 ## 🚀 The Automated Pipeline
 
-### Phase A: Data Ingestion (`clip_indexer_allphasesUpdated.py`)
+### Phase 1: Ingestion & Indexing (`clip_indexer_allphasesUpdated.py`)
 <img src="assets/yolo_vision.png" alt="YOLOv8 Object Detection HUD" width="100%">
 
 Instead of running manual scripts, the entire episode ingestion sequence has been streamlined into a single master script with smart caching and CPU/GPU fallback optimizations.
 
-1. **Scene Splitter**: Uses computer vision to analyze frames and losslessly cut full-length episodes exactly on camera cuts. Automatically skips if clips already exist to save time.
-2. **Subtitle Indexer**: Cross-references `.srt` subtitle files with scene timecodes to perfectly assign spoken dialogue to each micro-clip.
-3. **Semantic Embeddings**: Uses Hugging Face's `SentenceTransformers` (running highly optimized on CPU to prevent hardware mismatches) to create dense 384-dimensional vector embeddings of the dialogue. Skips re-embedding unchanged clips for blazing fast speeds.
-4. **YOLO Vision Tagging**: A custom-trained YOLOv8 object detection model physically opens every video clip to detect which characters (e.g., Rick, Morty) are on screen.
-5. **Episode Indexer**: Uses a local Ollama LLM to generate a canonical summary of the episode for metadata tracking.
-6. **Character Enrichment**: A secondary NLP pass that scans subtitles for hidden character aliases, updating the database and selectively re-embedding only modified clips.
+- **`scene_splitter.py`**: Uses computer vision to analyze frames and losslessly cut full-length episodes exactly on camera cuts. Automatically skips if clips already exist to save time.
+- **`clip_indexer_subtitles.py`**: Cross-references `.srt` subtitle files with scene timecodes to perfectly assign spoken dialogue to each micro-clip.
+- **`clip_indexer_embed.py`**: Uses Hugging Face's `SentenceTransformers` (running highly optimized on CPU to prevent hardware mismatches) to create dense vector embeddings of the dialogue.
+- **`clip_indexer_yolo.py`**: A custom-trained YOLOv8 object detection model physically opens every video clip to detect which characters (e.g., Rick, Morty) are on screen.
+- **`enrich_clip_characters.py`**: A secondary NLP pass that scans subtitles for hidden character aliases, updating the database and selectively re-embedding only modified clips.
+- **`episode_indexer.py`**: Uses a local Ollama LLM to generate a canonical summary of the episode for metadata tracking.
 
 ```powershell
 .\venv\Scripts\python scripts/clip_indexer_allphasesUpdated.py --episode "clips/S7/E1/video.mkv" --show rick_and_morty
@@ -132,14 +150,28 @@ Instead of running manual scripts, the entire episode ingestion sequence has bee
 
 ---
 
-### Phase B: Content Generation (`process_queue.py`)
+### Phase 2: Hybrid RAG Vectorization (`rag_manager.py`)
 
-Once the database is populated, the `process_queue.py` orchestrator takes over to autonomously generate content. You simply provide it with a topic in `queue.json` (e.g., "Rick's best insults") and it handles the rest:
+The system transforms raw ingested data into an interconnected Retrieval-Augmented Generation (RAG) network using ChromaDB. This allows the LLM agents to cross-reference multiple domains of knowledge instantly.
 
-1. **Script Generation**: Pulls topics from the queue and feeds them into a local LLM (Ollama) to write highly engaging, short-form scripts.
-2. **Voice Cloning (TTS)**: Converts the generated script into high-quality, cloned character audio.
-3. **Clip Matching**: Queries the vector database using semantic similarity to find the perfect micro-clips that visually match the script's "vibe" and characters.
-4. **Final Assembly**: `assembler.py` resizes the clips to 9:16 vertical format, burns dynamic captions onto the screen, and uses FFmpeg's `h264_nvenc` to render the final 1080p video entirely on the GPU in seconds.
+- **Subtitle Collection**: Embeds the exact dialogue spoken by characters across every ingested episode.
+- **Episode Collection**: Indexes the canonical summaries and overarching plots of each episode.
+- **Wiki Collection**: Pulls in external fandom wiki data to ground the AI in absolute canonical lore.
+- **Theories Collection**: Maps out abstract concepts and fan theories for generating viral hooks.
+
+---
+
+### Phase 3: Script Generation & Assembly (`process_queue.py`)
+
+Once the RAG database is populated, the `process_queue.py` orchestrator autonomously generates content based on the `queue.json` topics.
+
+1. **HyDE Monologue Expansion**: Takes your simple input topic and artificially expands it into a hypothetical script to drastically improve semantic search matching.
+2. **Multi-Vector ChromaDB Pull**: The system hits all 4 ChromaDB collections simultaneously, returning the top 12 most mathematically relevant hits.
+3. **Llama Context Distiller**: Condenses the raw vectors into a highly-dense "Verified Lore Dossier" of ground truths.
+4. **`script_generator.py`**: LLM 1 utilizes a strict 4-Act structure (Hook, Proof, Escalation, Payoff) to write the script.
+5. **`script_verifier.py`**: LLM 3 (the Strict Lore Auditor) scans the draft script for fluff or hallucinations. If it detects an error, it bounces the script back for correction.
+6. **`clip_matcher.py`**: Queries the video database using semantic similarity, applying a massive `+7.0` score boost to clips containing the correct YOLO character tags while filtering out intro/outro sequences.
+7. **Final NVENC Assembly**: Hands the matched clips to `assembler.py` to resize to 9:16, burn in dynamic captions, and use FFmpeg `h264_nvenc` to render the final 1080p video natively on the GPU in seconds.
 
 ---
 
