@@ -146,15 +146,34 @@ flowchart TD
 
 ```text
 📦 VibeCodingMax
+├── 📁 .agents/                # Custom AI agent customizations and rules
 ├── 📁 assets/                 # UI assets, fonts, and graphical banners
-├── 📁 clips/                  # Raw episode MP4s and split scene chunks
+├── 📁 audio/                  # Generated TTS audio fragments
+├── 📁 captions/               # Exported VTT/SRT styling and raw subtitle data
+├── 📁 clips/                  # Raw episode MP4s and split scene chunks (by Season/Episode)
+├── 📁 config/                 # YAML configuration schemas
 ├── 📁 output/                 # Final rendered NVENC hardware-accelerated videos
+├── 📁 prompts/                # Master LLM system prompts for script generation
+├── 📁 research_cache/         # Local cache for Web Research Agent fact dossiers
+├── 📁 rick_and_morty_subtitles/ # Raw extracted subtitle repository
 ├── 📁 scripts/                # Core AI pipeline python scripts
-├── 📁 topics/                 # Queue JSON and approved topic theories
+│   ├── assembler.py           # FFmpeg NVENC Video Compiler
+│   ├── clip_indexer_*.py      # Core data ingestion and metadata extractors
+│   ├── clip_matcher.py        # Semantic vector similarity matching
+│   ├── orchestrator.py        # Pipeline coordinator
+│   ├── process_queue.py       # Topic queue loop processor
+│   ├── rag_manager.py         # ChromaDB lifecycle management
+│   ├── script_generator.py    # Multi-Agent Ollama integration
+│   └── script_verifier.py     # Strict Lore Auditor LLM
+├── 📁 topics/                 # Mining topics
+│   ├── queue.json             # Live Topic processing queue
+│   └── approved/              # Verified hooks and script concepts
+├── 📁 vector_db/              # Local ChromaDB persistent storage
 ├── 📁 yolo_wt/                # YOLOv8 custom trained model weights for characters
-├── 📄 clip_index.json         # Master Semantic Vector Database
+├── 📄 clip_index.json         # Master Semantic Vector Database (Clips)
+├── 📄 episode_index.json      # Master Semantic Vector Database (Episodes)
 ├── 📄 config.yaml             # Global pipeline configuration
-├── 📄 show_config.yaml        # Character aliases and Show-specific metadata
+├── 📄 requirements.txt        # Python package dependencies
 └── 📄 README.md               # Documentation
 ```
 
