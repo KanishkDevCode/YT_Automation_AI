@@ -158,7 +158,8 @@ def process_episode(
     else:
         prefix = episode_mp4.stem
 
-    clips_dir = (PROJECT_ROOT / show_config.get("clips_dir", f"./clips/{show_slug}")).resolve()
+    clips_dir = episode_mp4.parent / "split_clips"
+    clips_dir.mkdir(parents=True, exist_ok=True)
     clip_index_path = get_project_path("clip_index", pipeline_cfg)
     default_subtitles_dir = get_project_path("subtitles_dir", pipeline_cfg)
     srt_path = find_matching_srt(episode_mp4, prefix, srt_dir_arg, default_subtitles_dir)
@@ -170,20 +171,23 @@ def process_episode(
 
     try:
         # Step 1: Scene Splitter
-        log_step(1, 6, "Running scene_splitter.py to slice episode MP4...")
-        cmd1 = [
-            sys.executable,
-            str(SCRIPTS_DIR / "scene_splitter.py"),
-            str(episode_mp4),
-            "--output",
-            str(clips_dir),
-            "--prefix",
-            prefix,
-        ]
-        run_command(cmd1)
+        manifest_path = clips_dir / f"{prefix}_manifest.json"
+        if manifest_path.exists() and len(list(clips_dir.glob("*.mp4"))) > 0:
+            log_step(1, 6, "Skipping scene_splitter.py (clips already exist)...")
+        else:
+            log_step(1, 6, "Running scene_splitter.py to slice episode MP4...")
+            cmd1 = [
+                sys.executable,
+                str(SCRIPTS_DIR / "scene_splitter.py"),
+                str(episode_mp4),
+                "--output",
+                str(clips_dir),
+                "--prefix",
+                prefix,
+            ]
+            run_command(cmd1)
 
         # Step 2: Subtitle Indexer
-        manifest_path = clips_dir / f"{prefix}_manifest.json"
         log_step(2, 6, "Running clip_indexer_subtitles.py to tag dialogue...")
         if srt_path and manifest_path.exists():
             cmd2 = [

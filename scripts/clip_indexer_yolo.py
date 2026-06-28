@@ -16,8 +16,8 @@ import torch
 def classify_clip(model, video_path):
     """Run classification on frames and aggregate results."""
     try:
-        # Determine device
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Force CPU to bypass RTX 5060 sm_120 PyTorch incompatibility
+        device = "cpu"
         
         # stream=True ensures we don't run out of RAM
         results = model.predict(

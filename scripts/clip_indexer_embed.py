@@ -35,12 +35,15 @@ def main():
 
     print("Loading SentenceTransformer model (this will download ~80MB the very first time)...")
     # all-MiniLM-L6-v2 is incredibly fast on CPU and highly accurate for sentence matching
-    model = SentenceTransformer('all-MiniLM-L6-v2')
+    model = SentenceTransformer('all-MiniLM-L6-v2', device="cpu")
 
     print(f"Generating semantic embeddings for {len(clips)} clips...")
     
     count = 0
     for clip in clips:
+        if clip.get("embedding") and len(clip.get("embedding")) > 0:
+            continue
+            
         # Create a rich text representation of the clip
         chars = ", ".join(clip.get("characters", []))
         action = clip.get("action", "")

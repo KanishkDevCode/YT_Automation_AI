@@ -101,6 +101,7 @@ def enrich_characters(index_path: Path, show_config: dict):
 
         if added_for_clip:
             enriched_clips += 1
+            clip.pop("embedding", None)
 
         # Sorted unified character list
         clip["characters"] = sorted(list(existing_lower.values()))
@@ -112,7 +113,7 @@ def enrich_characters(index_path: Path, show_config: dict):
     log.info("Loading SentenceTransformer model to update semantic embeddings...")
     try:
         from sentence_transformers import SentenceTransformer
-        model = SentenceTransformer("all-MiniLM-L6-v2")
+        model = SentenceTransformer("all-MiniLM-L6-v2", device="cpu")
     except ImportError:
         log.error("sentence-transformers not installed! Saving character tags without embeddings.")
         if isinstance(clip_data, dict):
@@ -122,6 +123,9 @@ def enrich_characters(index_path: Path, show_config: dict):
 
     log.info("Re-embedding %d clips with unified character & action text...", len(clips))
     for i, clip in enumerate(clips, 1):
+        if clip.get("embedding") and len(clip.get("embedding")) > 0:
+            continue
+            
         chars_str = ", ".join(clip.get("characters", []))
         action_str = clip.get("action", "")
         text_to_embed = f"Characters: {chars_str}. Dialogue/Action: {action_str}"

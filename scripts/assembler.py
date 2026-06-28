@@ -274,8 +274,7 @@ def build_caption_drawtext(segments: list, caption_cfg: dict,
             end = seg.get("end", 0)
             f = (
                 f"drawtext=text='{text}':"
-                f"fontfile='':"
-                f"fontfile='arial.ttf':"
+                f"fontfile='{font.replace('\\\\', '/')}':"
                 f"fontsize={font_size}:"
                 f"fontcolor={font_color}:"
                 f"borderw={outline_width}:"
@@ -308,7 +307,7 @@ def build_caption_drawtext(segments: list, caption_cfg: dict,
             # Base layer: all words in white
             base = (
                 f"drawtext=text='{group_text_escaped}':"
-                f"fontfile='arial.ttf':"
+                f"fontfile='{font.replace('\\\\', '/')}':"
                 f"fontsize={font_size}:"
                 f"fontcolor={font_color}:"
                 f"borderw={outline_width}:"
@@ -344,7 +343,7 @@ def build_caption_drawtext(segments: list, caption_cfg: dict,
                 # offset by the prefix width
                 highlight = (
                     f"drawtext=text='{word_escaped}':"
-                    f"fontfile='arial.ttf':"
+                    f"fontfile='{font.replace('\\\\', '/')}':"
                     f"fontsize={font_size}:"
                     f"fontcolor={highlight_color}:"
                     f"borderw={outline_width}:"
@@ -401,7 +400,7 @@ def build_simple_caption_drawtext(segments: list, caption_cfg: dict,
 
             f = (
                 f"drawtext=text='{text_esc}':"
-                f"fontfile='arial.ttf':"
+                f"fontfile='{font.replace('\\\\', '/')}':"
                 f"fontsize={font_size}:"
                 f"fontcolor={font_color}:"
                 f"borderw={outline_width}:"
@@ -427,7 +426,7 @@ def build_simple_caption_drawtext(segments: list, caption_cfg: dict,
             # Draw the full word group in the default color
             base_f = (
                 f"drawtext=text='{group_esc}':"
-                f"fontfile='arial.ttf':"
+                f"fontfile='{font.replace('\\\\', '/')}':"
                 f"fontsize={font_size}:"
                 f"fontcolor={font_color}:"
                 f"borderw={outline_width}:"
